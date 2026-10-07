@@ -212,7 +212,7 @@ internal static class DocumentRenderer
             paragraph.FontSize = size * 0.86; paragraph.LineHeight = paragraph.FontSize * 1.6;
             paragraph.Padding = new Thickness(14); paragraph.SetResourceReference(TextElement.BackgroundProperty, "CodeBrush");
         }
-        if (block.Kind == BlockKind.ListItem) paragraph.Margin = new Thickness(16 + block.Level * 14, 0, 0, size * 0.55);
+        if (block.Kind == BlockKind.ListItem) paragraph.Margin = new Thickness(16 + block.Level * 14d, 0, 0, size * 0.55);
         if (block.Kind == BlockKind.TableRow) { paragraph.FontSize = size * 0.9; paragraph.LineHeight = paragraph.FontSize * 1.6; }
     }
 }

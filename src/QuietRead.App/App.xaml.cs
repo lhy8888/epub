@@ -14,7 +14,7 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Length > 0) LaunchPath = e.Args[0];
+        if (_createMainWindow && e.Args.Length > 0) LaunchPath = e.Args[0];
         DispatcherUnhandledException += (_, args) =>
         {
             MessageBox.Show("程序遇到无法继续处理的错误，请重新打开。\n错误类型：" + args.Exception.GetType().Name,

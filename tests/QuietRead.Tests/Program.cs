@@ -66,7 +66,7 @@ Test("External entity referencing a local secret is never expanded", () =>
 
 Test("External DTD performs no loopback network request", () =>
 {
-    var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+    using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
     try
     {
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;

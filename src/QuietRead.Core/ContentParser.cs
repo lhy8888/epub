@@ -164,7 +164,11 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         bool space = false;
         foreach (char c in value)
         {
-            if (char.IsWhiteSpace(c) && c != '\u00a0') { if (!space) result.Append(' '); space = true; }
+            if (char.IsWhiteSpace(c) && c != '\u00a0')
+            {
+                if (!space) { result.Append(' '); }
+                space = true;
+            }
             else { result.Append(c); space = false; }
         }
         return result.ToString();

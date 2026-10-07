@@ -9,6 +9,10 @@
 
 **离线阅读 · 无账号 · 无广告 · 普通用户权限 · 源码无第三方 NuGet 包**
 
+![QuietRead 实际运行界面](docs/assets/reader.png)
+
+*在 GitHub Windows runner 中打开项目原创示例书的实际 WPF 界面。*
+
 ## 下载
 
 - **最新开发构建**：打开 [Build and checks](https://github.com/lhy8888/epub/actions/workflows/ci.yml)，选择 `main` 分支最近一次成功运行，在页面下方 **Artifacts** 下载 `QuietRead-Windows-x64`。下载 Actions 产物需要登录 GitHub；产物保存 30 天。

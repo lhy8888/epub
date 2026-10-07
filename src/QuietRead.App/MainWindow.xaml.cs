@@ -30,7 +30,8 @@ public partial class MainWindow : Window
     private ScrollViewer? _scroll;
     private int _chapterIndex, _segmentIndex, _openGeneration, _readGeneration, _busyGeneration;
     private long _saveRevision;
-    private bool _ready, _restoring, _selectingToc, _closed, _busy, _fullScreen;
+    private readonly bool _ready;
+    private bool _restoring, _selectingToc, _closed, _busy, _fullScreen;
     private string _highlight = "";
     private WindowStyle _savedStyle;
     private ResizeMode _savedResize;
@@ -123,7 +124,11 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or UnauthorizedAccessException)
         { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); StatusText.Text = "无法打开这本书。"; } }
-        finally { if (opened != null) _ = Task.Run(opened.Dispose); EndBusy(busy); }
+        finally
+        {
+            if (opened != null) { _ = Task.Run(opened.Dispose); }
+            EndBusy(busy);
+        }
     }
 
     private static string LocalFile(string path)
@@ -188,7 +193,11 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or UnauthorizedAccessException)
         { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); StatusText.Text = "此章节暂时无法显示，可从目录选择其他章节。"; } }
-        finally { if (generation == _readGeneration) _restoring = false; EndBusy(busy); }
+        finally
+        {
+            if (generation == _readGeneration) { _restoring = false; }
+            EndBusy(busy);
+        }
     }
 
     private void SelectCurrentToc()
@@ -609,7 +618,7 @@ public partial class MainWindow : Window
     {
         public TocItem Item { get; } = item;
         public string Title => Item.Title;
-        public Thickness Indent => new(Math.Min(Item.Depth, 6) * 12, 0, 0, 0);
+        public Thickness Indent => new(Math.Clamp(Item.Depth, 0, 6) * 12d, 0, 0, 0);
     }
 
     private sealed class BookmarkRow(Bookmark item)

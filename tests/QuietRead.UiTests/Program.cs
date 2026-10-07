@@ -117,7 +117,7 @@ internal static class Program
                     window.FontSizeSlider.Value = 28;
                     await Task.Delay(250);
                     await Idle(window);
-                    Require(window.Reader.Document.FontSize == 28, "Typography did not update.");
+                    Require(Math.Abs(window.Reader.Document.FontSize - 28) < 0.01, "Typography did not update.");
                     window.AppearancePopup.IsOpen = false;
                 });
                 await Check("Rapid book replacement cancels retired operations", async () =>
@@ -134,7 +134,7 @@ internal static class Program
                     AppState state = store.Load();
                     Require(!store.LoadFailed && state.Books.Count == 1, "History did not persist.");
                     Require(state.Books[0].ChapterIndex == 2 && state.Books[0].Bookmarks.Count == 1, "Reading position/bookmark missing.");
-                    Require(state.Preferences.FontSize == 28, "Preferences did not persist.");
+                    Require(Math.Abs(state.Preferences.FontSize - 28) < 0.01, "Preferences did not persist.");
                     window = new MainWindow(store);
                     window.Show();
                     await Idle(window);

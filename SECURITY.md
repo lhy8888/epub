@@ -35,3 +35,5 @@ ZIP/XML/图像处理仍依赖 .NET 与 Windows 原生组件。应用不是 AppCo
 - ZIP 和文件 SHA-256 只能核对完整性；当前二进制没有 Authenticode 签名，不能用哈希证明发布者身份。
 
 普通构建不会访问用户自己的书籍或阅读记录。CI 界面测试使用项目原创示例 EPUB和临时状态目录。
+
+已审查的自动扫描提示和处理边界见 [扫描处理说明](docs/SECURITY-REVIEW.md)。
