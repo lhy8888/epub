@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+.vs/
+release/
+artifacts/
+TestResults/
+docs/ui-tests.local.json
+docs/core-tests.local.json
+*.user
+*.suo
+__pycache__/
+*.pyc

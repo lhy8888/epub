@@ -1,0 +1,167 @@
+name: Build and checks
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  quality:
+    name: Source, format and dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Check tracked source, action pins and reproducible sample
+        run: python tools/check_repository.py
+      - name: Restore locked dependencies and audit all severities
+        run: dotnet restore QuietRead.sln --locked-mode
+      - name: Verify C# formatting
+        run: dotnet format whitespace QuietRead.sln --no-restore --verify-no-changes
+      - name: Compile with warnings and security analyzer findings as errors
+        run: dotnet build QuietRead.sln --configuration Release --no-restore
+      - name: Fail on known vulnerable NuGet packages
+        run: python tools/check_dependencies.py --report artifacts/dependencies.json
+      - name: Save dependency audit
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dependency-audit
+          path: artifacts/dependencies.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  core:
+    name: Core and security tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - run: dotnet restore tests/QuietRead.Tests/QuietRead.Tests.csproj --locked-mode
+      - name: Execute core tests, malicious fixtures, sample and benchmarks
+        run: dotnet run --project tests/QuietRead.Tests --configuration Release --no-restore -- --benchmark --validate samples/QuietRead-Guide.epub --report artifacts/core-tests.json
+      - name: Save detailed test and benchmark report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: core-tests-${{ matrix.os }}
+          path: artifacts/core-tests.json
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows WPF smoke test and portable package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - run: dotnet restore QuietRead.sln --locked-mode
+      - name: Execute real WPF window, image decoder and persistence checks
+        run: dotnet run --project tests/QuietRead.UiTests --configuration Release --no-restore -- samples/QuietRead-Guide.epub artifacts/ui-tests.json artifacts/windows-smoke.png
+      - name: Build and verify Windows x64 portable ZIP
+        shell: pwsh
+        env:
+          BUILD_REF: ${{ github.ref }}
+          BUILD_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:BUILD_REF.StartsWith('refs/tags/')) {
+            ./tools/Build.ps1 -SkipTests -Tag $env:BUILD_TAG
+          } else {
+            ./tools/Build.ps1 -SkipTests
+          }
+      - name: Save WPF test report and actual window image
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-ui-report
+          path: |
+            artifacts/ui-tests.json
+            artifacts/windows-smoke.png
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save portable download
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: QuietRead-Windows-x64
+          path: |
+            artifacts/QuietRead-*-Windows-x64.zip
+            artifacts/QuietRead-*-Windows-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  checks:
+    name: All build checks
+    if: always()
+    needs: [quality, core, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every build and test job to pass
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          CORE: ${{ needs.core.result }}
+          WINDOWS: ${{ needs.windows.result }}
+        run: |
+          test "$QUALITY" = success
+          test "$CORE" = success
+          test "$WINDOWS" = success
+
+  release:
+    name: Publish version tag to GitHub Releases
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: QuietRead-Windows-x64
+          path: artifacts
+      - name: Verify archive checksum
+        working-directory: artifacts
+        run: sha256sum --check *.zip.sha256
+      - name: Publish the checked portable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/*.zip.sha256 --verify-tag --title "QuietRead $RELEASE_TAG" --notes-file docs/RELEASE-NOTES.md

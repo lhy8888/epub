@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用方法与兼容性
+    url: https://github.com/lhy8888/epub#readme
+    about: 下载、快捷键、阅读记录和支持范围。
+  - name: 安全报告说明
+    url: https://github.com/lhy8888/epub/blob/main/SECURITY.md
+    about: 请按说明报告敏感的安全问题。

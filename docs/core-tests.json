@@ -1,0 +1,272 @@
+{
+  "version": "0.1.0",
+  "utc": "2026-10-07T10:51:00.5602379Z",
+  "os": "Ubuntu 24.04.3 LTS",
+  "dotnet": "10.0.12",
+  "windowsUiExecuted": false,
+  "passed": 38,
+  "failed": 0,
+  "tests": [
+    {
+      "name": "EPUB3 metadata, nested TOC, anchors, Unicode and emphasis",
+      "passed": true,
+      "milliseconds": 45.3036
+    },
+    {
+      "name": "EPUB2 NCX, harmless legacy DOCTYPE and HTML entities",
+      "passed": true,
+      "milliseconds": 7.2505
+    },
+    {
+      "name": "Scripts, forms, remote images and external hyperlinks cannot become active content",
+      "passed": true,
+      "milliseconds": 2.9368
+    },
+    {
+      "name": "External entity referencing a local secret is never expanded",
+      "passed": true,
+      "milliseconds": 8.833
+    },
+    {
+      "name": "External DTD performs no loopback network request",
+      "passed": true,
+      "milliseconds": 11.3727
+    },
+    {
+      "name": "Internal entity expansion bomb is rejected",
+      "passed": true,
+      "milliseconds": 0.8458
+    },
+    {
+      "name": "Reject ZIP path: ../escape",
+      "passed": true,
+      "milliseconds": 0.4488
+    },
+    {
+      "name": "Reject ZIP path: /absolute",
+      "passed": true,
+      "milliseconds": 0.2012
+    },
+    {
+      "name": "Reject ZIP path: C:/absolute",
+      "passed": true,
+      "milliseconds": 0.1865
+    },
+    {
+      "name": "Reject ZIP path: OEBPS/../../escape",
+      "passed": true,
+      "milliseconds": 0.1918
+    },
+    {
+      "name": "Reject ZIP path: OEBPS\\escape",
+      "passed": true,
+      "milliseconds": 0.1801
+    },
+    {
+      "name": "Reject ZIP path: OEBPS/./escape",
+      "passed": true,
+      "milliseconds": 0.183
+    },
+    {
+      "name": "Reject ZIP path: OEBPS//escape",
+      "passed": true,
+      "milliseconds": 1.2168
+    },
+    {
+      "name": "Reference normalization, percent encoding and root confinement",
+      "passed": true,
+      "milliseconds": 0.5381
+    },
+    {
+      "name": "Duplicate ZIP resource names are rejected",
+      "passed": true,
+      "milliseconds": 0.4711
+    },
+    {
+      "name": "Encrypted ZIP flag is rejected before resource parsing",
+      "passed": true,
+      "milliseconds": 1.3214
+    },
+    {
+      "name": "ZIP symbolic links cannot enter the resource table",
+      "passed": true,
+      "milliseconds": 0.9047
+    },
+    {
+      "name": "Unsupported compression and central directory entry overflow are rejected",
+      "passed": true,
+      "milliseconds": 3.1253
+    },
+    {
+      "name": "Oversized and suspiciously compressed declared resources are rejected",
+      "passed": true,
+      "milliseconds": 2.8487
+    },
+    {
+      "name": "Archive size cap works without reading a huge file",
+      "passed": true,
+      "milliseconds": 2.3122
+    },
+    {
+      "name": "Truncated and non-EPUB input fail cleanly",
+      "passed": true,
+      "milliseconds": 1.6807
+    },
+    {
+      "name": "ZIP64 directory is supported within the same resource limits",
+      "passed": true,
+      "milliseconds": 1.4942
+    },
+    {
+      "name": "XML nesting and node-count limits reject resource exhaustion",
+      "passed": true,
+      "milliseconds": 19.0719
+    },
+    {
+      "name": "XML byte and paragraph limits reject extreme chapters",
+      "passed": true,
+      "milliseconds": 30.0618
+    },
+    {
+      "name": "Large paragraph is split without losing text or surrogate pairs",
+      "passed": true,
+      "milliseconds": 3.8752
+    },
+    {
+      "name": "Nested quotes, lists, line breaks, code and basic table rows survive conversion",
+      "passed": true,
+      "milliseconds": 1.2768
+    },
+    {
+      "name": "Raster dimensions and type are checked before the Windows decoder",
+      "passed": true,
+      "milliseconds": 2.469
+    },
+    {
+      "name": "Nested SVG fallback text cannot multiply retained output",
+      "passed": true,
+      "milliseconds": 1.3932
+    },
+    {
+      "name": "Oversized raster and mismatched MIME are rejected",
+      "passed": true,
+      "milliseconds": 6.0947
+    },
+    {
+      "name": "DRM and fixed layout report an explicit unsupported-format error",
+      "passed": true,
+      "milliseconds": 1.6261
+    },
+    {
+      "name": "Font obfuscation can be ignored without loading embedded fonts",
+      "passed": true,
+      "milliseconds": 0.9598
+    },
+    {
+      "name": "Fallback chains and repeated spine references preserve reading order",
+      "passed": true,
+      "milliseconds": 0.9923
+    },
+    {
+      "name": "Chapter loading is lazy and its cache stays bounded",
+      "passed": true,
+      "milliseconds": 3.7784
+    },
+    {
+      "name": "Search handles Unicode, skips broken chapters and caps results",
+      "passed": true,
+      "milliseconds": 2.6543
+    },
+    {
+      "name": "Cancellation stops open, read and search; disposed books cannot be reused",
+      "passed": true,
+      "milliseconds": 1.5965
+    },
+    {
+      "name": "A cancelled operation on a retired book returns cancellation safely",
+      "passed": true,
+      "milliseconds": 0.891
+    },
+    {
+      "name": "State round-trip, bounds, bad data recovery and atomic write order",
+      "passed": true,
+      "milliseconds": 40.9367
+    },
+    {
+      "name": "State size and unknown schema are safely ignored",
+      "passed": true,
+      "milliseconds": 1.1754
+    }
+  ],
+  "compatibility": [
+    {
+      "file": "alice.epub",
+      "title": "Alice\u0027s Adventures in Wonderland",
+      "passed": true,
+      "chapters": 15,
+      "tocItems": 16,
+      "blocks": 866,
+      "characters": 164532,
+      "readableRasters": 1,
+      "unsupportedImages": 0,
+      "coreValidationMs": 11.5782
+    },
+    {
+      "file": "moby-dick.epub",
+      "title": "Moby Dick; Or, The Whale",
+      "passed": true,
+      "chapters": 13,
+      "tocItems": 146,
+      "blocks": 2866,
+      "characters": 1242097,
+      "readableRasters": 1,
+      "unsupportedImages": 0,
+      "coreValidationMs": 58.3844
+    },
+    {
+      "file": "chinese.epub",
+      "title": "\u65BD\u516C\u6848",
+      "passed": true,
+      "chapters": 18,
+      "tocItems": 1,
+      "blocks": 6923,
+      "characters": 1205140,
+      "readableRasters": 1,
+      "unsupportedImages": 0,
+      "coreValidationMs": 90.7167
+    },
+    {
+      "file": "QuietRead-Guide.epub",
+      "title": "\u9759\u8BFB \u00B7 \u9605\u8BFB\u6307\u5357",
+      "passed": true,
+      "chapters": 4,
+      "tocItems": 4,
+      "blocks": 348,
+      "characters": 21630,
+      "readableRasters": 1,
+      "unsupportedImages": 0,
+      "coreValidationMs": 1.8862
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "1000-chapter full-text scan (no matches)",
+      "milliseconds": 382.6489,
+      "chapters": 1000,
+      "cachedChapters": 0,
+      "failedChapters": 0
+    },
+    {
+      "name": "Open 1000-chapter EPUB, warmed OS/runtime",
+      "medianMs": 13.3584,
+      "maxMs": 21.0587,
+      "iterations": 7
+    },
+    {
+      "name": "Parse one 80-paragraph chapter, cache miss",
+      "medianMs": 0.4731,
+      "maxMs": 0.6174,
+      "iterations": 7
+    }
+  ]
+}

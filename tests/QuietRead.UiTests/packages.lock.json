@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "QuietRead": {
+        "type": "Project",
+        "dependencies": {
+          "QuietRead.Core": "[0.1.0, )"
+        }
+      },
+      "quietread.core": {
+        "type": "Project"
+      }
+    },
+    "net10.0-windows7.0/win-x64": {}
+  }
+}

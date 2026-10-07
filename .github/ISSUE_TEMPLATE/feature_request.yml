@@ -1,0 +1,21 @@
+name: 功能建议
+description: 描述阅读过程中遇到的问题和希望的行为。
+title: '[Feature] '
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与问题
+      description: 目前怎样阅读？在哪里遇到障碍？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 希望的行为
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: 兼容性、安全或性能方面的考虑

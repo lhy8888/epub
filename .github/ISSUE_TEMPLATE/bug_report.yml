@@ -1,0 +1,39 @@
+name: Bug / EPUB 兼容性问题
+description: 报告应用错误或 EPUB 显示问题；安全漏洞请使用私密渠道。
+title: '[Bug] '
+body:
+  - type: markdown
+    attributes:
+      value: '请先阅读 README 的兼容性限制。安全漏洞请按 SECURITY.md 报告；不要上传付费 EPUB、个人阅读记录或敏感文件。'
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本或提交
+      placeholder: '0.1.0 / commit SHA'
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows 版本、架构与显示缩放
+      placeholder: 'Windows 11 x64，显示缩放 125%'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现步骤
+      description: 描述打开什么书、进行什么操作以及错误提示。只附允许公开分发的最小示例。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 可附不包含敏感内容的截图；如果是构建问题，请提供失败任务的 Actions 链接。
