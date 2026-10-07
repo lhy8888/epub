@@ -103,6 +103,9 @@ jobs:
           } else {
             ./tools/Build.ps1 -SkipTests
           }
+      - name: Start and close the actual portable executable with its sample
+        shell: pwsh
+        run: ./tools/Smoke-Published.ps1
       - name: Save WPF test report and actual window image
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

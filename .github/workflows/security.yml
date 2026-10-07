@@ -57,6 +57,17 @@ jobs:
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: '/language:${{ matrix.language }}'
+          output: artifacts/codeql
+      - name: Reject CodeQL errors and high or critical security findings
+        run: python tools/check_codeql.py artifacts/codeql
+      - name: Save machine-readable security reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: codeql-${{ matrix.language }}
+          path: artifacts/codeql/*.sarif
+          if-no-files-found: error
+          retention-days: 14
 
   security-checks:
     name: All security scans

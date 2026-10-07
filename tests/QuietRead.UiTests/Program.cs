@@ -31,9 +31,8 @@ internal static class Program
         string screenshot = Path.GetFullPath(args[2]);
         string temporary = Path.Combine(Path.GetTempPath(), "QuietRead-ui-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
-        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var app = new App(createMainWindow: false) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
-        app.StartupUri = null;
         var timeout = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
         timeout.Tick += (_, _) =>
         {
@@ -177,9 +176,13 @@ internal static class Program
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(new
         {
-            utc = DateTime.UtcNow, os = RuntimeInformation.OSDescription,
-            dotnet = RuntimeInformation.FrameworkDescription, windowsUiExecuted = true,
-            passed = _passed, failed = _failed, tests = Outcomes
+            utc = DateTime.UtcNow,
+            os = RuntimeInformation.OSDescription,
+            dotnet = RuntimeInformation.FrameworkDescription,
+            windowsUiExecuted = true,
+            passed = _passed,
+            failed = _failed,
+            tests = Outcomes
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 

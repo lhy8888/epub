@@ -4,6 +4,12 @@ namespace QuietRead;
 
 public partial class App : Application
 {
+    private readonly bool _createMainWindow;
+
+    public App() : this(true) { }
+
+    internal App(bool createMainWindow) => _createMainWindow = createMainWindow;
+
     public string? LaunchPath { get; private set; }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -17,5 +23,10 @@ public partial class App : Application
             Shutdown(1);
         };
         base.OnStartup(e);
+        if (_createMainWindow)
+        {
+            MainWindow = new MainWindow();
+            MainWindow.Show();
+        }
     }
 }

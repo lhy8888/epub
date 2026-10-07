@@ -22,7 +22,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         else foreach (XNode child in body.Nodes()) Walk(child, TextStyle.None, null);
         Flush();
         if (_blocks.Count == 0)
-            Add(new BookBlock(BlockKind.Paragraph, [new BookInline("此章节没有可显示的文字或图片。") ]));
+            Add(new BookBlock(BlockKind.Paragraph, [new BookInline("此章节没有可显示的文字或图片。")]));
         // Empty anchors at the end of a document still resolve to the last visible block.
         foreach (string key in _anchors.Keys.ToArray()) _anchors[key] = Math.Min(_anchors[key], _blocks.Count - 1);
         return new ParsedChapter(_blocks.AsReadOnly(), new ReadOnlyDictionary<string, int>(_anchors), rtl, _characters);

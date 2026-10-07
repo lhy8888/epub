@@ -69,8 +69,13 @@ public partial class MainWindow : Window
 
     private async void Open_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new OpenFileDialog { Title = "打开 EPUB 书籍", Filter = "EPUB 电子书 (*.epub)|*.epub",
-            CheckFileExists = true, Multiselect = false };
+        var picker = new OpenFileDialog
+        {
+            Title = "打开 EPUB 书籍",
+            Filter = "EPUB 电子书 (*.epub)|*.epub",
+            CheckFileExists = true,
+            Multiselect = false
+        };
         if (picker.ShowDialog(this) == true) await OpenBookAsync(picker.FileName);
     }
 
@@ -272,8 +277,13 @@ public partial class MainWindow : Window
         if (_history.Bookmarks.Count >= 64) { StatusText.Text = "每本书最多保存 64 个书签，请先删除部分书签。"; return; }
         if (_history.Bookmarks.Any(x => x.ChapterIndex == _chapterIndex && x.BlockIndex == _history.BlockIndex && Math.Abs(x.Fraction - ScrollFraction) < 0.03))
         { StatusText.Text = "这个位置已有书签。"; return; }
-        _history.Bookmarks.Add(new Bookmark { ChapterIndex = _chapterIndex, BlockIndex = _history.BlockIndex,
-            Fraction = ScrollFraction, Label = _book.Chapters[_chapterIndex].Title + (_segments.Length > 1 ? $" · 第 {_segmentIndex + 1} 部分" : "") });
+        _history.Bookmarks.Add(new Bookmark
+        {
+            ChapterIndex = _chapterIndex,
+            BlockIndex = _history.BlockIndex,
+            Fraction = ScrollFraction,
+            Label = _book.Chapters[_chapterIndex].Title + (_segments.Length > 1 ? $" · 第 {_segmentIndex + 1} 部分" : "")
+        });
         RefreshBookmarks(); ScheduleSave(); StatusText.Text = "已添加书签。";
     }
 

@@ -105,14 +105,26 @@ internal static class DocumentRenderer
                 FrameworkElement content;
                 if (block.ImagePath != null && images.Images.TryGetValue(block.ImagePath, out ImageSource? image))
                 {
-                    content = new Image { Source = image, Stretch = Stretch.Uniform, MaxHeight = 960,
-                        MaxWidth = preferences.TextWidth - 64, HorizontalAlignment = HorizontalAlignment.Center };
+                    content = new Image
+                    {
+                        Source = image,
+                        Stretch = Stretch.Uniform,
+                        MaxHeight = 960,
+                        MaxWidth = preferences.TextWidth - 64,
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
                     System.Windows.Automation.AutomationProperties.SetName(content, block.Alt ?? "书内图片");
                 }
                 else
                 {
-                    var label = new TextBlock { Text = block.Alt + "\n（图片未显示）", TextWrapping = TextWrapping.Wrap,
-                        FontSize = 13, Padding = new Thickness(16), TextAlignment = TextAlignment.Center };
+                    var label = new TextBlock
+                    {
+                        Text = block.Alt + "\n（图片未显示）",
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 13,
+                        Padding = new Thickness(16),
+                        TextAlignment = TextAlignment.Center
+                    };
                     label.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryBrush");
                     var frame = new Border { Child = label, CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1) };
                     frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");

@@ -309,9 +309,12 @@ Test("A cancelled operation on a retired book returns cancellation safely", () =
 Test("State round-trip, bounds, bad data recovery and atomic write order", () =>
 {
     string directory = Path.Combine(root, "settings"); var store = new StateStore(directory);
-    var state = new AppState { Preferences = new ReaderPreferences { FontSize = double.NaN, Theme = "script", TextWidth = 10_000 },
+    var state = new AppState
+    {
+        Preferences = new ReaderPreferences { FontSize = double.NaN, Theme = "script", TextWidth = 10_000 },
         Books = [new BookHistory { BookKey = new string('a', 64), FilePath = "test.epub", ChapterIndex = 999_999,
-            Bookmarks = [new Bookmark { Label = "bookmark", Fraction = -4 }] }] };
+            Bookmarks = [new Bookmark { Label = "bookmark", Fraction = -4 }] }]
+    };
     store.Save(StateStore.Snapshot(state), 2);
     AppState loaded = store.Load(); Check.Equal(22.0, loaded.Preferences.FontSize); Check.Equal("Paper", loaded.Preferences.Theme);
     Check.Equal(1100.0, loaded.Preferences.TextWidth); Check.Equal(4095, loaded.Books[0].ChapterIndex); Check.Equal(0.0, loaded.Books[0].Bookmarks[0].Fraction);
@@ -365,9 +368,19 @@ try
                         catch (EpubException) { unsupportedImages++; }
                     }
             }
-            compatibilityResults.Add(new { file = Path.GetFileName(path), title = book.Title, passed = true,
-                chapters = book.Chapters.Count, tocItems = book.TableOfContents.Count, blocks, characters, readableRasters = images,
-                unsupportedImages, coreValidationMs = timer.Elapsed.TotalMilliseconds });
+            compatibilityResults.Add(new
+            {
+                file = Path.GetFileName(path),
+                title = book.Title,
+                passed = true,
+                chapters = book.Chapters.Count,
+                tocItems = book.TableOfContents.Count,
+                blocks,
+                characters,
+                readableRasters = images,
+                unsupportedImages,
+                coreValidationMs = timer.Elapsed.TotalMilliseconds
+            });
             Console.WriteLine($"COMPAT PASS {Path.GetFileName(path)}: {book.Chapters.Count} chapters, {characters} chars, {images} raster images");
         }
         catch (Exception exception)
@@ -389,8 +402,14 @@ try
         using (var book = EpubBook.Open(path))
         {
             var timer = Stopwatch.StartNew(); SearchOutcome result = book.Search("not-present-keyword");
-            benchmarkResults.Add(new { name = "1000-chapter full-text scan (no matches)", milliseconds = timer.Elapsed.TotalMilliseconds, chapters = book.Chapters.Count,
-                cachedChapters = book.CachedChapterCount, failedChapters = result.FailedChapters });
+            benchmarkResults.Add(new
+            {
+                name = "1000-chapter full-text scan (no matches)",
+                milliseconds = timer.Elapsed.TotalMilliseconds,
+                chapters = book.Chapters.Count,
+                cachedChapters = book.CachedChapterCount,
+                failedChapters = result.FailedChapters
+            });
         }
         benchmarkResults.Add(new { name = "Open 1000-chapter EPUB, warmed OS/runtime", medianMs = opens.Order().ElementAt(3), maxMs = opens.Max(), iterations = 7 });
         benchmarkResults.Add(new { name = "Parse one 80-paragraph chapter, cache miss", medianMs = reads.Order().ElementAt(3), maxMs = reads.Max(), iterations = 7 });
@@ -401,8 +420,19 @@ try
     if (report != null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(report))!);
-        File.WriteAllText(report, JsonSerializer.Serialize(new { version = "0.1.0", utc = DateTime.UtcNow, os = RuntimeInformation.OSDescription,
-            dotnet = Environment.Version.ToString(), windowsUiExecuted = false, passed, failed, tests = outcomes, compatibility = compatibilityResults, benchmarks = benchmarkResults }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(report, JsonSerializer.Serialize(new
+        {
+            version = "0.1.0",
+            utc = DateTime.UtcNow,
+            os = RuntimeInformation.OSDescription,
+            dotnet = Environment.Version.ToString(),
+            windowsUiExecuted = false,
+            passed,
+            failed,
+            tests = outcomes,
+            compatibility = compatibilityResults,
+            benchmarks = benchmarkResults
+        }, new JsonSerializerOptions { WriteIndented = true }));
     }
     Console.WriteLine($"{passed} passed, {failed} failed.");
 }
@@ -427,8 +457,11 @@ static class Fixtures
     public static string Html(string body) => "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Test</title></head><body>" + body + "</body></html>";
     public static Dictionary<string, byte[]> Book(string[] bodies, bool epub2 = false)
     {
-        var result = new Dictionary<string, byte[]> { ["mimetype"] = Utf8("application/epub+zip"),
-            ["META-INF/container.xml"] = Utf8("<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>") };
+        var result = new Dictionary<string, byte[]>
+        {
+            ["mimetype"] = Utf8("application/epub+zip"),
+            ["META-INF/container.xml"] = Utf8("<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>")
+        };
         var manifest = new StringBuilder(); var spine = new StringBuilder(); var nav = new StringBuilder();
         for (int i = 0; i < bodies.Length; i++)
         {

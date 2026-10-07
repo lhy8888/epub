@@ -112,11 +112,11 @@ Linux 也可运行核心测试和交叉编译；WPF 界面只能在 Windows 运�
 | NuGet 审计 | 锁定依赖还原；审计直接/传递依赖的所有漏洞级别；已知漏洞会导致失败 |
 | Windows / Linux 核心测试 | 38 项核心、安全及兼容性回归；解析示例 EPUB；输出性能测量与 JSON 报告 |
 | Windows WPF 冒烟测试 | 实际显示窗口、封面解码、长章分段、导航、搜索、书签、主题、字号、换书取消、保存与续读；输出真实窗口图和 JSON 报告 |
-| 包验证 | Windows x64 GUI PE、运行时和许可证完整性、ZIP CRC 与 SHA-256 |
-| CodeQL | 扫描 C# 和 GitHub Actions，结果上传到 [Security](https://github.com/lhy8888/epub/security/code-scanning)；每周重新扫描 |
+| 包验证 | Windows x64 GUI PE、运行时和许可证完整性、ZIP CRC 与 SHA-256；实际启动便携 EXE 打开示例书并正常关闭 |
+| CodeQL | 扫描 C# 和 GitHub Actions；错误和安全分值 ≥7 的高危/严重发现会失败；上传 [Security](https://github.com/lhy8888/epub/security/code-scanning) 和 SARIF 报告，每周重新扫描 |
 | Dependabot | 每周检查 Action 和 NuGet 更新，通过 PR 提交变更 |
 
-CodeQL 提交扫描结果；具体发现需要在 Security 中处理，扫描任务成功不表示代码绝对安全。NuGet 包审计不覆盖 Windows 补丁，也不自动更新自包含 .NET 运行时。
+CodeQL 的其他发现需要在 Security 中处理，扫描任务成功不表示代码绝对安全。NuGet 包审计不覆盖 Windows 补丁，也不自动更新自包含 .NET 运行时。
 
 GitHub Windows runner 是服务器镜像，不等于 Windows 11 用户真机。历史本地核心测试报告见 [验证记录](docs/VALIDATION.md)；最新 CI 结果和窗口图见 Actions 产物。**Windows 11 真机冷启动、内存、滚动流畅度、多显示器/DPI 和签名验收仍需手动完成。**
 

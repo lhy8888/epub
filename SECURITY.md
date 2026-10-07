@@ -31,7 +31,7 @@ ZIP/XML/图像处理仍依赖 .NET 与 Windows 原生组件。应用不是 AppCo
 - 生产源码没有显式第三方 NuGet 包引用；官方 .NET/Windows Desktop 引用包与运行时通过 HTTPS 获取。
 - 依赖锁文件、NuGet 漏洞审计、C# 安全分析器、恶意 EPUB 回归测试和 CodeQL 共同提供自动化检查。
 - Actions 使用完整提交 SHA、最小权限，不保留 checkout 凭据，不通过 PR 运行拥有发布权限的任务。
-- CodeQL 结果在 Security 页面查看；工作流成功不等于没有安全发现。
+- CodeQL 结果在 Security 页面查看；错误与安全分值 ≥7 的发现会阻断扫描检查，其他发现仍需维护者处理。工作流成功不等于没有安全发现。
 - ZIP 和文件 SHA-256 只能核对完整性；当前二进制没有 Authenticode 签名，不能用哈希证明发布者身份。
 
 普通构建不会访问用户自己的书籍或阅读记录。CI 界面测试使用项目原创示例 EPUB和临时状态目录。
