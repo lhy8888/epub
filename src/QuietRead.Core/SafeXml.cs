@@ -13,6 +13,7 @@ internal static partial class SafeXml
 
     public static XDocument Parse(byte[] data, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         if (data.Length > ReaderLimits.XmlBytes) throw new EpubException("书籍中的单个文档过大（上限 8 MB）。");
         string text;
         try
@@ -23,6 +24,7 @@ internal static partial class SafeXml
             // Never turn encoded '<', '&', etc. into markup.
             text = NamedEntity().Replace(text, match =>
             {
+                token.ThrowIfCancellationRequested();
                 string name = match.Groups[1].Value;
                 if (name is "amp" or "lt" or "gt" or "quot" or "apos") return match.Value;
                 string decoded = WebUtility.HtmlDecode(match.Value);
@@ -43,7 +45,8 @@ internal static partial class SafeXml
                 while (guard.Read())
                 {
                     if ((++nodes & 127) == 0) token.ThrowIfCancellationRequested();
-                    if (nodes > ReaderLimits.XmlNodes || guard.Depth > ReaderLimits.XmlDepth)
+                    nodes += guard.AttributeCount;
+                    if (nodes > ReaderLimits.XmlNodes || guard.AttributeCount > 256 || guard.Depth > ReaderLimits.XmlDepth)
                         throw new EpubException("书籍文档结构过于复杂，已停止加载。");
                 }
             token.ThrowIfCancellationRequested();

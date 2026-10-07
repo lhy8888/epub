@@ -48,7 +48,7 @@ internal static class DocumentRenderer
                 int width = Math.Min(1200, data.Info.Width);
                 int height = (int)Math.Ceiling((double)data.Info.Height * width / data.Info.Width);
                 long pixels = (long)width * height;
-                if (decodedPixels + pixels > 8_000_000) { skipped++; continue; }
+                if (decodedPixels + pixels > ReaderLimits.ImageViewPixels) { skipped++; continue; }
                 var bitmap = new BitmapImage();
                 using var stream = new MemoryStream(data.Bytes, false);
                 bitmap.BeginInit();
@@ -56,9 +56,12 @@ internal static class DocumentRenderer
                 bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
                 bitmap.StreamSource = stream;
                 bitmap.DecodePixelWidth = width;
+                bitmap.DecodePixelHeight = height;
+                token.ThrowIfCancellationRequested();
                 bitmap.EndInit();
+                token.ThrowIfCancellationRequested();
                 if (bitmap.PixelWidth <= 0 || bitmap.PixelHeight <= 0 || bitmap.PixelWidth > 16384 ||
-                    bitmap.PixelHeight > 16384 || (long)bitmap.PixelWidth * bitmap.PixelHeight > 8_000_000 - decodedPixels)
+                    bitmap.PixelHeight > 16384 || (long)bitmap.PixelWidth * bitmap.PixelHeight > ReaderLimits.ImageViewPixels - decodedPixels)
                 { skipped++; continue; }
                 // Copy into a bounded, detached bitmap. The document must not retain
                 // BitmapImage.StreamSource (and the full compressed image buffers).
@@ -66,6 +69,7 @@ internal static class DocumentRenderer
                 byte[] pixelsData = new byte[checked(stride * bitmap.PixelHeight)];
                 var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Pbgra32, null, 0);
                 converted.CopyPixels(pixelsData, stride, 0);
+                token.ThrowIfCancellationRequested();
                 BitmapSource detached = BitmapSource.Create(bitmap.PixelWidth, bitmap.PixelHeight, 96, 96,
                     PixelFormats.Pbgra32, null, pixelsData, stride);
                 detached.Freeze();

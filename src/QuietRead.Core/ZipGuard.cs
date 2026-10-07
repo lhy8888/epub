@@ -22,12 +22,18 @@ internal static class ZipGuard
             if (U32(tail, i) == 0x06054b50 && i + 22 + U16(tail, i + 20) == tail.Length)
             { end = i; break; }
         if (end < 0) throw new EpubException("找不到有效的 EPUB ZIP 目录。");
+        // ZipArchive searches for the last signature without checking the comment
+        // length. A later signature would make it read a different directory.
+        for (int i = end + 1; i <= tail.Length - 22; i++)
+            if (U32(tail, i) == 0x06054b50)
+                throw new EpubException("ZIP 注释包含有歧义的目录标记。");
         if (U16(tail, end + 4) != 0 || U16(tail, end + 6) != 0 || U16(tail, end + 8) != U16(tail, end + 10))
             throw new EpubException("不支持分卷 EPUB 文件。");
         ulong count = U16(tail, end + 10);
         ulong size = U32(tail, end + 12);
         ulong offset = U32(tail, end + 16);
         long eocdPosition = length - tail.Length + end;
+        ulong directoryBoundary = (ulong)eocdPosition;
         if (count == ushort.MaxValue || size == uint.MaxValue || offset == uint.MaxValue)
         {
             if (eocdPosition < 20) throw new EpubException("ZIP64 目录无效。");
@@ -41,13 +47,21 @@ internal static class ZipGuard
             stream.Position = (long)location;
             byte[] record = new byte[56];
             stream.ReadExactly(record);
-            if (U32(record, 0) != 0x06064b50 || U64(record, 4) < 44 ||
+            ulong recordSize = U64(record, 4);
+            if (U32(record, 0) != 0x06064b50 || recordSize < 44 ||
+                location > (ulong)(eocdPosition - 20) || recordSize > (ulong)(eocdPosition - 20) - location ||
+                recordSize + 12 != (ulong)(eocdPosition - 20) - location ||
                 U32(record, 16) != 0 || U32(record, 20) != 0 || U64(record, 24) != U64(record, 32))
                 throw new EpubException("ZIP64 目录无效。");
+            if ((count != ushort.MaxValue && count != U64(record, 32)) ||
+                (size != uint.MaxValue && size != U64(record, 40)) ||
+                (offset != uint.MaxValue && offset != U64(record, 48)))
+                throw new EpubException("ZIP 与 ZIP64 目录声明不一致。");
             count = U64(record, 32); size = U64(record, 40); offset = U64(record, 48);
+            directoryBoundary = location;
         }
         if (count == 0 || count > ReaderLimits.Entries || size > 32UL * 1024 * 1024 ||
-            offset > (ulong)length || size > (ulong)length - offset || offset + size > (ulong)eocdPosition)
+            offset > directoryBoundary || size > directoryBoundary - offset)
             throw new EpubException("书籍资源数量过多或 ZIP 目录无效。");
 
         stream.Position = (long)offset;

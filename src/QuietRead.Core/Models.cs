@@ -14,10 +14,14 @@ public static class ReaderLimits
     public const int ChapterBlocks = 6_000;
     public const int ChapterInlines = 30_000;
     public const int ChapterCharacters = 2_000_000;
-    public const int CacheChapters = 3;
-    public const int CacheCharacters = 3_000_000;
+    public const int CacheChapters = 2;
+    public const int CacheCharacters = 2_000_000;
+    public const long CacheBytes = 8L * 1024 * 1024;
+    public const int BlockCharacters = 4096;
+    public const int BlockInlines = 512;
     public const int BlocksPerView = 180;
     public const int SearchResults = 200;
+    public const long ImageViewPixels = 4_000_000;
 }
 
 public sealed class EpubException(string message, Exception? inner = null) : Exception(message, inner);
@@ -38,7 +42,15 @@ public sealed record BookBlock(BlockKind Kind, IReadOnlyList<BookInline> Inlines
 public sealed record BookChapter(string Path, string Title);
 public sealed record TocItem(string Title, int ChapterIndex, string Fragment, int Depth);
 public sealed record ParsedChapter(IReadOnlyList<BookBlock> Blocks,
-    IReadOnlyDictionary<string, int> Anchors, bool RightToLeft, int CharacterCount);
+    IReadOnlyDictionary<string, int> Anchors, bool RightToLeft, int CharacterCount)
+{
+    // A conservative model estimate, not a measurement of total process memory.
+    public long EstimatedMemoryBytes => 256L + Blocks.Sum(block => 128L +
+        2L * ((block.Alt?.Length ?? 0) + (block.ImagePath?.Length ?? 0)) +
+        block.Inlines.Sum(inline => 96L + 2L * inline.Text.Length + (inline.Link == null ? 0 :
+            64L + 2L * (inline.Link.Path.Length + inline.Link.Fragment.Length)))) +
+        Anchors.Sum(anchor => 96L + 2L * anchor.Key.Length);
+}
 public sealed record SearchHit(int ChapterIndex, int BlockIndex, string ChapterTitle, string Snippet);
 public sealed record SearchOutcome(IReadOnlyList<SearchHit> Hits, int FailedChapters, bool LimitReached);
 public sealed record RasterData(byte[] Bytes, RasterInfo Info);

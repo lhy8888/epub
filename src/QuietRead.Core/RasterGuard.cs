@@ -19,6 +19,7 @@ public static class RasterGuard
         {
             width = BinaryPrimitives.ReadUInt16LittleEndian(data[6..]);
             height = BinaryPrimitives.ReadUInt16LittleEndian(data[8..]); format = "gif";
+            ValidateGif(data, width, height);
         }
         else if (data.Length >= 54 && data[..2].SequenceEqual("BM"u8))
         {
@@ -58,5 +59,49 @@ public static class RasterGuard
         if (width <= 0 || height <= 0 || width > 16_384 || height > 16_384 || (long)width * height > 20_000_000)
             throw new EpubException("图片尺寸过大或无效（最多 2,000 万像素）。");
         return new RasterInfo(width, height, format);
+    }
+
+    private static void ValidateGif(ReadOnlySpan<byte> data, int width, int height)
+    {
+        int at = 13;
+        if ((data[10] & 0x80) != 0) at += 3 * (1 << ((data[10] & 7) + 1));
+        bool hasFrame = false;
+        while (at < data.Length)
+        {
+            byte marker = data[at++];
+            if (marker == 0x3b && hasFrame) return;
+            if (marker == 0x21)
+            {
+                if (at >= data.Length) break;
+                at++; // extension label; only skip its bounded sub-blocks
+            }
+            else if (marker == 0x2c)
+            {
+                if (at > data.Length - 9) break;
+                int left = BinaryPrimitives.ReadUInt16LittleEndian(data[at..]);
+                int top = BinaryPrimitives.ReadUInt16LittleEndian(data[(at + 2)..]);
+                int frameWidth = BinaryPrimitives.ReadUInt16LittleEndian(data[(at + 4)..]);
+                int frameHeight = BinaryPrimitives.ReadUInt16LittleEndian(data[(at + 6)..]);
+                if (frameWidth <= 0 || frameHeight <= 0 || left + frameWidth > width || top + frameHeight > height)
+                    throw new EpubException("GIF 帧尺寸超出图片画布。");
+                int packed = data[at + 8];
+                at += 9;
+                if ((packed & 0x80) != 0) at += 3 * (1 << ((packed & 7) + 1));
+                if (at >= data.Length) break;
+                int codeSize = data[at++];
+                if (codeSize is < 2 or > 8) throw new EpubException("GIF 图片数据无效。");
+                hasFrame = true;
+            }
+            else break;
+            while (true)
+            {
+                if (at >= data.Length) throw new EpubException("GIF 图片被截断。");
+                int size = data[at++];
+                if (size == 0) break;
+                if (size > data.Length - at) throw new EpubException("GIF 图片被截断。");
+                at += size;
+            }
+        }
+        throw new EpubException("GIF 图片结构无效或被截断。");
     }
 }

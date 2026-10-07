@@ -18,6 +18,7 @@ public sealed class EpubBook : IDisposable
     private readonly object _gate = new();
     private bool _disposed;
     private int _cacheCharacters;
+    private long _cacheBytes;
 
     public string FilePath { get; }
     public string BookKey { get; private set; } = "";
@@ -28,6 +29,7 @@ public sealed class EpubBook : IDisposable
     public IReadOnlyList<TocItem> TableOfContents { get; private set; } = [];
     public int ExternalResourcesSkipped { get; private set; }
     public int CachedChapterCount { get { lock (_gate) return _cache.Count; } }
+    public long EstimatedCacheBytes { get { lock (_gate) return _cacheBytes; } }
 
     private EpubBook(string path, FileStream file, ZipArchive archive)
     { FilePath = path; _file = file; _archive = archive; }
@@ -70,7 +72,8 @@ public sealed class EpubBook : IDisposable
             int fileType = (entry.ExternalAttributes >> 16) & 0xf000;
             if (fileType == 0xa000) throw new EpubException("书籍包含不受支持的符号链接。");
             if (entry.Length < 0 || entry.Length > ReaderLimits.EntryBytes ||
-                entry.CompressedLength < 0 || (entry.Length > 1024 * 1024 && entry.Length / Math.Max(1, entry.CompressedLength) > 2000))
+                entry.CompressedLength < 0 || entry.CompressedLength > ReaderLimits.EntryBytes ||
+                (entry.Length > 1024 * 1024 && entry.Length / Math.Max(1, entry.CompressedLength) > 2000))
                 throw new EpubException("书籍资源过大或压缩比异常，已停止加载。");
             expanded = checked(expanded + entry.Length);
             if (expanded > ReaderLimits.ExpandedBytes) throw new EpubException("书籍的解压后总大小超过 1 GB 限制。");
@@ -82,14 +85,14 @@ public sealed class EpubBook : IDisposable
             ((string?)x.Attribute("media-type") is null or "application/oebps-package+xml"));
         string packagePath = (string?)rootFile?.Attribute("full-path") ?? throw new EpubException("找不到 EPUB 包文档。");
         ArchivePath.ValidateEntry(packagePath);
-        byte[] packageBytes = ReadBytes(packagePath, ReaderLimits.XmlBytes, token);
-        XDocument package = SafeXml.Parse(packageBytes, token);
+        XDocument package = ReadXml(packagePath, token);
         XElement metadata = package.Root?.Elements().FirstOrDefault(x => x.Name.LocalName == "metadata")
             ?? throw new EpubException("EPUB 缺少元数据。");
-        Title = Clip(metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "title")?.Value, 256, Path.GetFileNameWithoutExtension(FilePath));
-        Author = Clip(string.Join("、", metadata.Elements().Where(x => x.Name.LocalName == "creator").Take(8).Select(x => x.Value)), 256, "作者未注明");
-        Language = Clip(metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "language")?.Value, 32, "");
-        if (metadata.Elements().Any(x => (string?)x.Attribute("property") == "rendition:layout" && x.Value.Trim() == "pre-paginated"))
+        Title = ReadLabel(metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "title"), 256, Path.GetFileNameWithoutExtension(FilePath), token);
+        Author = Clip(string.Join("、", metadata.Elements().Where(x => x.Name.LocalName == "creator").Take(8)
+            .Select(x => ReadLabel(x, 256, "", token))), 256, "作者未注明");
+        Language = ReadLabel(metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "language"), 32, "", token);
+        if (metadata.Elements().Any(x => (string?)x.Attribute("property") == "rendition:layout" && ReadLabel(x, 32, "", token) == "pre-paginated"))
             throw new EpubException("首版支持可重排 EPUB；此书采用固定版式，暂不支持。");
 
         var items = new Dictionary<string, ManifestItem>(StringComparer.Ordinal);
@@ -100,10 +103,14 @@ public sealed class EpubBook : IDisposable
             token.ThrowIfCancellationRequested();
             string id = (string?)item.Attribute("id") ?? "";
             string type = (string?)item.Attribute("media-type") ?? "";
+            string properties = (string?)item.Attribute("properties") ?? "";
+            string fallback = (string?)item.Attribute("fallback") ?? "";
             LocalLink? link = ArchivePath.Resolve(packagePath, (string?)item.Attribute("href"));
             if (id.Length == 0 || id.Length > 1024 || items.ContainsKey(id)) throw new EpubException("EPUB 资源清单包含无效或重复 ID。");
+            if (type.Length > 128 || properties.Length > 1024 || fallback.Length > 1024)
+                throw new EpubException("EPUB 资源属性过长。");
             if (link == null) { ExternalResourcesSkipped++; items.Add(id, new ManifestItem("", type, "", "")); continue; }
-            items.Add(id, new ManifestItem(link.Path, type, (string?)item.Attribute("properties") ?? "", (string?)item.Attribute("fallback") ?? ""));
+            items.Add(id, new ManifestItem(link.Path, type, properties, fallback));
             if (_mediaTypes.TryGetValue(link.Path, out string? prior) && prior != type)
                 throw new EpubException("同一个书籍资源具有冲突的格式声明。");
             _mediaTypes[link.Path] = type;
@@ -111,19 +118,24 @@ public sealed class EpubBook : IDisposable
         XElement spine = package.Root?.Elements().FirstOrDefault(x => x.Name.LocalName == "spine")
             ?? throw new EpubException("EPUB 缺少阅读顺序。");
         var chapters = new List<BookChapter>();
+        var resolved = new Dictionary<string, ManifestItem?>(StringComparer.Ordinal);
         foreach (XElement reference in spine.Elements().Where(x => x.Name.LocalName == "itemref"))
         {
+            token.ThrowIfCancellationRequested();
+            if (chapters.Count >= ReaderLimits.SpineItems) throw new EpubException("书籍章节过多。");
             string id = (string?)reference.Attribute("idref") ?? "";
             var visited = new HashSet<string>(StringComparer.Ordinal);
             ManifestItem? item = null;
             while (items.TryGetValue(id, out ManifestItem? next) && visited.Add(id))
             {
+                token.ThrowIfCancellationRequested();
+                if (resolved.TryGetValue(id, out item)) break;
                 if (next.MediaType is "application/xhtml+xml" or "text/html" or "image/svg+xml") { item = next; break; }
                 id = next.Fallback;
             }
+            foreach (string visitedId in visited) resolved[visitedId] = item;
             if (item == null || item.Path.Length == 0 || !_entries.ContainsKey(item.Path))
                 throw new EpubException("EPUB 中有缺失或不受支持的章节。");
-            if (chapters.Count >= ReaderLimits.SpineItems) throw new EpubException("书籍章节过多。");
             _chapterByPath.TryAdd(item.Path, chapters.Count);
             chapters.Add(new BookChapter(item.Path, $"第 {chapters.Count + 1} 章"));
         }
@@ -132,16 +144,16 @@ public sealed class EpubBook : IDisposable
         CheckEncryption(token);
 
         var toc = new List<TocItem>();
-        ManifestItem? navigation = items.Values.FirstOrDefault(x => x.Properties.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("nav"));
+        ManifestItem? navigation = items.Values.FirstOrDefault(x => HasToken(x.Properties, "nav"));
         if (navigation != null && navigation.Path.Length > 0)
         {
             XDocument nav = ReadXml(navigation.Path, token);
             XElement? navRoot = nav.Descendants().FirstOrDefault(x => x.Name.LocalName == "nav" &&
-                x.Attributes().Any(a => a.Name.LocalName == "type" && a.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("toc")));
+                x.Attributes().Any(a => a.Name.LocalName == "type" && HasToken(a.Value, "toc")));
             navRoot ??= nav.Descendants().FirstOrDefault(x => x.Name.LocalName == "nav");
             if (navRoot != null)
                 foreach (XElement a in navRoot.Descendants().Where(x => x.Name.LocalName == "a"))
-                    AddToc(toc, navigation.Path, (string?)a.Attribute("href"), a.Value,
+                    AddToc(toc, navigation.Path, (string?)a.Attribute("href"), ReadLabel(a, 160, "", token),
                         Math.Clamp(a.Ancestors().Count(x => x.Name.LocalName == "ol") - 1, 0, 16));
         }
         if (toc.Count == 0)
@@ -153,12 +165,13 @@ public sealed class EpubBook : IDisposable
                 {
                     XElement? label = point.Elements().FirstOrDefault(x => x.Name.LocalName == "navLabel");
                     XElement? content = point.Elements().FirstOrDefault(x => x.Name.LocalName == "content");
-                    AddToc(toc, ncx.Path, (string?)content?.Attribute("src"), label?.Value,
+                    AddToc(toc, ncx.Path, (string?)content?.Attribute("src"), ReadLabel(label, 160, "", token),
                         Math.Clamp(point.Ancestors().Count(x => x.Name.LocalName == "navPoint"), 0, 16));
                 }
         }
+        var titledChapters = new HashSet<int>();
         foreach (TocItem item in toc)
-            if (chapters[item.ChapterIndex].Title.StartsWith("第 ", StringComparison.Ordinal))
+            if (titledChapters.Add(item.ChapterIndex))
                 chapters[item.ChapterIndex] = chapters[item.ChapterIndex] with { Title = item.Title };
         if (toc.Count == 0)
             toc.AddRange(chapters.Select((x, i) => new TocItem(x.Title, i, "", 0)));
@@ -207,15 +220,18 @@ public sealed class EpubBook : IDisposable
             { _recency.Remove(index); _recency.AddLast(index); return result; }
             string path = Chapters[index].Path;
             result = new ContentParser(path, _chapterByPath.ContainsKey, token).Parse(ReadXml(path, token));
-            if (cache)
+            long bytes = result.EstimatedMemoryBytes;
+            if (cache && bytes <= ReaderLimits.CacheBytes && result.CharacterCount <= ReaderLimits.CacheCharacters)
             {
-                while (_cache.Count > 0 && (_cache.Count >= ReaderLimits.CacheChapters || _cacheCharacters + result.CharacterCount > ReaderLimits.CacheCharacters))
+                while (_cache.Count > 0 && (_cache.Count >= ReaderLimits.CacheChapters ||
+                    _cacheCharacters + result.CharacterCount > ReaderLimits.CacheCharacters || _cacheBytes + bytes > ReaderLimits.CacheBytes))
                 {
                     int oldest = _recency.First!.Value;
                     _cacheCharacters -= _cache[oldest].CharacterCount;
+                    _cacheBytes -= _cache[oldest].EstimatedMemoryBytes;
                     _cache.Remove(oldest); _recency.RemoveFirst();
                 }
-                _cache[index] = result; _cacheCharacters += result.CharacterCount; _recency.AddLast(index);
+                _cache[index] = result; _cacheCharacters += result.CharacterCount; _cacheBytes += bytes; _recency.AddLast(index);
             }
             return result;
         }
@@ -242,6 +258,7 @@ public sealed class EpubBook : IDisposable
         query = query.Trim();
         if (query.Length is 0 or > 128) throw new ArgumentException("搜索文字应为 1–128 个字符。", nameof(query));
         var hits = new List<SearchHit>();
+        Span<char> buffer = stackalloc char[ReaderLimits.BlockCharacters + 3]; // list bullet prefix
         int failed = 0;
         for (int chapterIndex = 0; chapterIndex < Chapters.Count; chapterIndex++)
         {
@@ -252,11 +269,21 @@ public sealed class EpubBook : IDisposable
             for (int blockIndex = 0; blockIndex < chapter.Blocks.Count; blockIndex++)
             {
                 if ((blockIndex & 63) == 0) token.ThrowIfCancellationRequested();
-                string text = chapter.Blocks[blockIndex].PlainText;
-                int found = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                int length = 0;
+                IReadOnlyList<BookInline> inlines = chapter.Blocks[blockIndex].Inlines;
+                for (int inlineIndex = 0; inlineIndex < inlines.Count; inlineIndex++)
+                {
+                    BookInline inline = inlines[inlineIndex];
+                    inline.Text.AsSpan().CopyTo(buffer[length..]);
+                    length += inline.Text.Length;
+                }
+                ReadOnlySpan<char> text = buffer[..length];
+                int found = text.IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
                 if (found < 0) continue;
                 int start = Math.Max(0, found - 28), count = Math.Min(100, text.Length - start);
-                string snippet = (start > 0 ? "…" : "") + text.Substring(start, count).Replace('\n', ' ') + (start + count < text.Length ? "…" : "");
+                if (start > 0 && char.IsLowSurrogate(text[start])) { start--; count = Math.Min(100, text.Length - start); }
+                if (count > 0 && char.IsHighSurrogate(text[start + count - 1])) count--;
+                string snippet = (start > 0 ? "…" : "") + new string(text.Slice(start, count)).Replace('\n', ' ') + (start + count < text.Length ? "…" : "");
                 hits.Add(new SearchHit(chapterIndex, blockIndex, Chapters[chapterIndex].Title, snippet));
                 if (hits.Count >= ReaderLimits.SearchResults) return new SearchOutcome(hits.AsReadOnly(), failed, true);
             }
@@ -270,20 +297,24 @@ public sealed class EpubBook : IDisposable
     {
         token.ThrowIfCancellationRequested();
         if (!_entries.TryGetValue(path, out ZipArchiveEntry? entry)) throw new EpubException("书籍缺少资源：" + Clip(path, 120, "未知"));
-        if (entry.Length > limit) throw new EpubException("书籍资源超过允许的大小限制。");
+        if (entry.Length > limit || entry.CompressedLength > Math.Max(4096L, limit + 64L * 1024))
+            throw new EpubException("书籍资源超过允许的大小限制。");
         try
         {
             using Stream content = entry.Open();
             byte[] data = new byte[(int)entry.Length];
             int at = 0;
+            uint crc = uint.MaxValue;
             while (at < data.Length)
             {
                 token.ThrowIfCancellationRequested();
                 int read = content.Read(data, at, Math.Min(64 * 1024, data.Length - at));
                 if (read == 0) throw new EpubException("书籍资源被截断。");
+                crc = ZipCrc.Update(crc, data.AsSpan(at, read));
                 at += read;
             }
             if (content.ReadByte() != -1) throw new EpubException("书籍资源的实际大小与 ZIP 声明不符。");
+            if (~crc != entry.Crc32) throw new EpubException("书籍资源的 CRC 校验失败，文件可能已损坏。");
             return data;
         }
         catch (InvalidDataException exception) { throw new EpubException("书籍资源压缩数据损坏。", exception); }
@@ -291,10 +322,53 @@ public sealed class EpubBook : IDisposable
 
     private static string Clip(string? value, int max, string fallback)
     {
-        value = value?.Trim();
-        if (string.IsNullOrEmpty(value)) return fallback;
-        value = string.Concat(value.Select(c => char.IsControl(c) ? ' ' : c));
-        return value.Length <= max ? value : value[..max];
+        ReadOnlySpan<char> text = value.AsSpan().Trim();
+        if (text.IsEmpty) return fallback;
+        int length = Math.Min(max, text.Length);
+        if (length < text.Length && char.IsHighSurrogate(text[length - 1])) length--;
+        string bounded = text[..length].ToString();
+        return string.Create(length, bounded, (destination, source) =>
+        { for (int i = 0; i < source.Length; i++) destination[i] = char.IsControl(source[i]) ? ' ' : source[i]; });
+    }
+
+    private static string ReadLabel(XElement? element, int max, string fallback, CancellationToken token)
+    {
+        if (element == null) return fallback;
+        var text = new StringBuilder(max);
+        int scanned = 0, nodes = 0;
+        foreach (XNode node in element.DescendantNodes())
+        {
+            token.ThrowIfCancellationRequested();
+            if (++nodes > 1024) break;
+            if (node is not XText value) continue;
+            foreach (char c in value.Value)
+            {
+                if ((++scanned & 4095) == 0) token.ThrowIfCancellationRequested();
+                if (scanned > 4096) return Clip(text.ToString(), max, fallback);
+                if (text.Length == 0 && char.IsWhiteSpace(c)) continue;
+                text.Append(c);
+                if (text.Length >= max)
+                {
+                    if (char.IsHighSurrogate(text[^1])) text.Length--;
+                    return Clip(text.ToString(), max, fallback);
+                }
+            }
+        }
+        return Clip(text.ToString(), max, fallback);
+    }
+
+    private static bool HasToken(string value, string expected)
+    {
+        ReadOnlySpan<char> text = value.AsSpan();
+        while (!text.IsEmpty)
+        {
+            text = text.TrimStart();
+            int length = 0;
+            while (length < text.Length && !char.IsWhiteSpace(text[length])) length++;
+            if (text[..length].SequenceEqual(expected)) return true;
+            text = text[length..];
+        }
+        return false;
     }
 
     public void Dispose()
@@ -302,7 +376,7 @@ public sealed class EpubBook : IDisposable
         lock (_gate)
         {
             if (_disposed) return;
-            _disposed = true; _cache.Clear(); _recency.Clear(); _cacheCharacters = 0;
+            _disposed = true; _cache.Clear(); _recency.Clear(); _cacheCharacters = 0; _cacheBytes = 0;
             _archive.Dispose(); _file.Dispose();
         }
     }

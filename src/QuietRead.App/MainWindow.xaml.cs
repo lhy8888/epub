@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     private readonly StateStore _store;
     private readonly AppState _state;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _readingWork = new(1, 1);
+    private readonly SemaphoreSlim _searchWork = new(1, 1);
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _appearanceTimer;
     private CancellationTokenSource? _openToken, _readToken, _searchToken;
@@ -82,6 +84,7 @@ public partial class MainWindow : Window
 
     internal async Task OpenBookAsync(string path)
     {
+        if (_closed) return;
         try { path = LocalFile(path); }
         catch (Exception exception) when (exception is EpubException or ArgumentException or IOException or UnauthorizedAccessException)
         { ShowError(exception.Message); return; }
@@ -93,7 +96,7 @@ public partial class MainWindow : Window
         EpubBook? opened = null;
         try
         {
-            opened = await Task.Run(() => EpubBook.Open(path, token), token);
+            opened = await RunBoundedWorkAsync(_readingWork, () => EpubBook.Open(path, token), token);
             if (_closed || token.IsCancellationRequested || generation != _openGeneration) return;
             CapturePosition();
             EpubBook? previous = _book;
@@ -108,7 +111,9 @@ public partial class MainWindow : Window
             _history.LastReadUtc = DateTime.UtcNow;
             _history.Title = _book.Title; _history.Author = _book.Author;
             _chapter = null; _scroll = null; _highlight = "";
-            SearchList.ItemsSource = null; SearchStatusText.Text = "输入文字，按 Enter 搜索全书。";
+            Reader.Document = null; _renderedBlocks.Clear(); _segments = [0]; _segmentIndex = 0;
+            PartText.Text = ""; ProgressText.Text = "—";
+            SearchList.ItemsSource = null; SearchStatusText.Text = "输入文字，点击「查找」搜索全书。";
             BookTitleText.Text = _book.Title; BookAuthorText.Text = _book.Author;
             Title = _book.Title + " · QuietRead";
             ChapterCountText.Text = $"{_book.Chapters.Count} 个章节";
@@ -131,7 +136,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static string LocalFile(string path)
+    internal static string LocalFile(string path)
     {
         path = Path.GetFullPath(path);
         if (!string.Equals(Path.GetExtension(path), ".epub", StringComparison.OrdinalIgnoreCase))
@@ -139,6 +144,15 @@ public partial class MainWindow : Window
         string root = Path.GetPathRoot(path) ?? "";
         if (root.StartsWith("\\\\", StringComparison.Ordinal) || new DriveInfo(root).DriveType == DriveType.Network)
             throw new EpubException("请先把书籍复制到本地磁盘，再用 QuietRead 打开。");
+        // Inspect from the root down. Opening a child of a junction first could
+        // already contact an SMB server or hydrate a cloud placeholder.
+        string component = root;
+        foreach (string part in path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            component = Path.Combine(component, part);
+            if ((File.GetAttributes(component) & FileAttributes.ReparsePoint) != 0)
+                throw new EpubException("请打开本地实际文件，暂不支持符号链接、目录联接或云占位文件。");
+        }
         if (!File.Exists(path)) throw new EpubException("找不到这本书，请重新选择文件。");
         return path;
     }
@@ -153,12 +167,15 @@ public partial class MainWindow : Window
         CancellationToken token = _readToken.Token;
         int generation = ++_readGeneration;
         int busy = BeginBusy("正在载入章节…");
+        ParsedChapter? currentChapter = index == _chapterIndex ? _chapter : null;
+        int[]? currentSegments = currentChapter != null ? _segments : null;
         try
         {
-            var slice = await Task.Run(() =>
+            var slice = await RunBoundedWorkAsync(_readingWork, () =>
             {
-                ParsedChapter chapter = book.ReadChapter(index, token);
-                int[] segments = DocumentRenderer.BuildSegments(chapter);
+                token.ThrowIfCancellationRequested();
+                ParsedChapter chapter = currentChapter ?? book.ReadChapter(index, token);
+                int[] segments = currentSegments ?? DocumentRenderer.BuildSegments(chapter);
                 int target = Math.Clamp(blockIndex, 0, chapter.Blocks.Count - 1);
                 if (!string.IsNullOrEmpty(fragment) && chapter.Anchors.TryGetValue(fragment, out int anchor)) target = anchor;
                 int part = Array.BinarySearch(segments, target);
@@ -187,6 +204,7 @@ public partial class MainWindow : Window
                 UpdateProgress(); CapturePosition();
                 Reader.Focus();
             }, DispatcherPriority.Loaded, token);
+            if (_closed || token.IsCancellationRequested || generation != _readGeneration || book != _book) return;
             StatusText.Text = slice.images.Skipped > 0 ? $"本段有 {slice.images.Skipped} 张图片未显示。" :
                 book.ExternalResourcesSkipped > 0 ? "已跳过书内外部资源。" : "阅读位置自动保存";
         }
@@ -251,7 +269,7 @@ public partial class MainWindow : Window
         double chapterPart = (_segments[_segmentIndex] + (end - _segments[_segmentIndex]) * viewed) / _chapter.Blocks.Count;
         double percent = 100 * (_chapterIndex + chapterPart) / _book.Chapters.Count;
         ProgressText.Text = $"{_chapterIndex + 1} / {_book.Chapters.Count}  ·  ≈{percent:0}%";
-        PartText.Text = _segments.Length > 1 ? $"第 {_segmentIndex + 1}/{_segments.Length} 部分" : "Space 翻页";
+        PartText.Text = _segments.Length > 1 ? $"第 {_segmentIndex + 1}/{_segments.Length} 部分" : "滚动或点击翻页";
         UpdateButtons();
     }
 
@@ -316,8 +334,6 @@ public partial class MainWindow : Window
     }
 
     private async void Search_Click(object sender, RoutedEventArgs e) => await SearchAsync();
-    private async void Search_KeyDown(object sender, KeyEventArgs e)
-    { if (e.Key == Key.Enter) { e.Handled = true; await SearchAsync(); } }
 
     internal async Task SearchAsync()
     {
@@ -330,7 +346,7 @@ public partial class MainWindow : Window
         SearchStatusText.Text = "正在搜索全书…"; SearchList.ItemsSource = null;
         try
         {
-            SearchOutcome outcome = await Task.Run(() => book.Search(query, token), token);
+            SearchOutcome outcome = await RunBoundedWorkAsync(_searchWork, () => book.Search(query, token), token);
             if (_closed || token.IsCancellationRequested || book != _book) return;
             _highlight = query;
             SearchList.ItemsSource = outcome.Hits;
@@ -439,41 +455,7 @@ public partial class MainWindow : Window
         _ = DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
     }
 
-    private async void Window_KeyDown(object sender, KeyEventArgs e)
-    {
-        bool control = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
-        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
-        bool editing = Keyboard.FocusedElement is TextBox or ComboBox;
-        if (control)
-        {
-            switch (e.Key)
-            {
-                case Key.O: e.Handled = true; Open_Click(this, new RoutedEventArgs()); return;
-                case Key.B: e.Handled = true; Sidebar_Click(this, new RoutedEventArgs()); return;
-                case Key.D: e.Handled = true; Bookmark_Click(this, new RoutedEventArgs()); return;
-                case Key.F: e.Handled = true; SetSidebar(true); SidebarTabs.SelectedIndex = 2; SearchBox.Focus(); return;
-                case Key.W: e.Handled = true; Home_Click(this, new RoutedEventArgs()); return;
-                case Key.Right when !editing: e.Handled = true; await NavigateAsync(_chapterIndex + 1); return;
-                case Key.Left when !editing: e.Handled = true; await NavigateAsync(_chapterIndex - 1); return;
-                case Key.Home when !editing: e.Handled = true; await NavigateAsync(0); return;
-                case Key.End when !editing: e.Handled = true; if (_book != null) await NavigateAsync(_book.Chapters.Count - 1, int.MaxValue, 1); return;
-                case Key.OemPlus: case Key.Add: e.Handled = true; FontSizeSlider.Value = Math.Min(36, FontSizeSlider.Value + 1); return;
-                case Key.OemMinus: case Key.Subtract: e.Handled = true; FontSizeSlider.Value = Math.Max(14, FontSizeSlider.Value - 1); return;
-            }
-        }
-        if (e.Key == Key.F11) { e.Handled = true; ToggleFullScreen(); return; }
-        if (e.Key == Key.Escape)
-        {
-            if (AppearancePopup.IsOpen) { AppearancePopup.IsOpen = false; e.Handled = true; }
-            else if (_fullScreen) { ToggleFullScreen(); e.Handled = true; }
-            return;
-        }
-        if (editing || AppearancePopup.IsOpen || control || (shift && e.Key is Key.Left or Key.Right)) return;
-        if (e.Key == Key.Space && Keyboard.FocusedElement is System.Windows.Controls.Primitives.ButtonBase) return;
-        if (e.Key is Key.Space or Key.PageDown or Key.Right)
-        { e.Handled = true; await StepReadingAsync(e.Key == Key.Space && shift ? -1 : 1); }
-        else if (e.Key is Key.PageUp or Key.Left) { e.Handled = true; await StepReadingAsync(-1); }
-    }
+    private void FullScreen_Click(object sender, RoutedEventArgs e) => ToggleFullScreen();
 
     private void ToggleFullScreen()
     {
@@ -484,6 +466,7 @@ public partial class MainWindow : Window
         }
         else { WindowState = WindowState.Normal; WindowStyle = _savedStyle; ResizeMode = _savedResize; WindowState = _savedWindowState; }
         _fullScreen = !_fullScreen;
+        FullScreenButton.Content = _fullScreen ? "退出全屏" : "全屏";
     }
 
     private void Window_DragOver(object sender, DragEventArgs e)
@@ -506,6 +489,7 @@ public partial class MainWindow : Window
     {
         CapturePosition(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         _openGeneration++; _readGeneration++; _busyGeneration++;
+        _restoring = false;
         EpubBook? book = _book;
         _book = null; _history = null; _chapter = null; _scroll = null; _renderedBlocks.Clear();
         Reader.Document = null; TocList.ItemsSource = null; SearchList.ItemsSource = null; RefreshBookmarks();
@@ -541,13 +525,10 @@ public partial class MainWindow : Window
     private void Help_Click(object sender, RoutedEventArgs e)
     {
         AppearancePopup.IsOpen = false;
-        MessageBox.Show(this, "QuietRead · 静读 0.1.0\n\n" +
-            "Ctrl+O  打开 EPUB\nCtrl+B  显示/隐藏目录\nCtrl+F  全书搜索\nCtrl+D  添加书签\nCtrl+W  返回最近阅读\n" +
-            "Space / → / Page Down  下一页\nShift+Space / ← / Page Up  上一页\nCtrl+← / →  上一章 / 下一章\nCtrl+Home / End  书首 / 书末\n" +
-            "Ctrl+＋ / －  调整字号\nF11  全屏；Esc  退出全屏\n\n" +
-            "打开本地可重排 EPUB 2/3。支持基本文字排版、表格行和 JPEG/PNG/GIF/BMP 图片。长章节分段显示，翻页可继续下一段。\n\n" +
-            "书内脚本、外部资源、嵌入字体不执行/不加载。原书 CSS、复杂 SVG、音视频、固定版式和 DRM 暂不支持。\n" +
-            "阅读记录仅保存在本机。进度百分比和恢复位置为近似值，文件移动或修改后需重新建立记录。",
+        MessageBox.Show(this, "QuietRead · 静读\n\n" +
+            "点击「打开」或拖入本地 EPUB。用目录跳转，用底部按钮翻页，在「查找」中搜索全书。\n\n" +
+            "「Aa」调整背景、字体、字号和行距；「全屏」放大阅读区域；「＋书签」保存位置。\n\n" +
+            "阅读记录只保存在本机。软件不会执行书内脚本或加载外部资源。适合小说和一般文字书，暂不支持 DRM 和固定版式。",
             "使用说明", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -567,6 +548,7 @@ public partial class MainWindow : Window
     private void UpdateButtons()
     {
         bool active = _book != null && _chapter != null && !_busy;
+        TocList.IsEnabled = !_busy; BookmarksList.IsEnabled = !_busy; SearchList.IsEnabled = !_busy;
         BookmarkButton.IsEnabled = active; SearchButton.IsEnabled = _book != null && !_busy;
         PreviousButton.IsEnabled = active && (_chapterIndex > 0 || _segmentIndex > 0 || (_scroll?.VerticalOffset ?? 0) > 2);
         NextButton.IsEnabled = active && (_chapterIndex + 1 < _book!.Chapters.Count || _segmentIndex + 1 < _segments.Length ||
@@ -593,7 +575,10 @@ public partial class MainWindow : Window
         _lifetime.Cancel(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         try { _store.Save(StateStore.Snapshot(_state), ++_saveRevision); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
-        EpubBook? book = _book; _book = null;
+        EpubBook? book = _book; _book = null; _chapter = null; _history = null; _scroll = null;
+        Reader.Document = null; _renderedBlocks.Clear();
+        TocList.ItemsSource = null; SearchList.ItemsSource = null; BookmarksList.ItemsSource = null; RecentList.ItemsSource = null;
+        _lifetime.Dispose();
         if (book != null) _ = Task.Run(book.Dispose);
     }
 
@@ -602,6 +587,16 @@ public partial class MainWindow : Window
 
     private static void Cancel(ref CancellationTokenSource? source)
     { source?.Cancel(); source?.Dispose(); source = null; }
+
+    private static async Task<T> RunBoundedWorkAsync<T>(SemaphoreSlim gate, Func<T> work, CancellationToken token)
+    {
+        // Cancel queued requests without occupying worker threads. A codec cannot
+        // be interrupted internally, so let its retired invocation finish before
+        // starting another image/open operation. Search has a separate queue.
+        await gate.WaitAsync(token).ConfigureAwait(false);
+        try { return await Task.Run(work, token).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
 
     private static T? FindVisual<T>(DependencyObject parent) where T : DependencyObject
     {

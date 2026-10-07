@@ -1,4 +1,6 @@
 using System.IO;
+using System.IO.Compression;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -15,6 +17,7 @@ namespace QuietRead.UiTests;
 internal static class Program
 {
     private static readonly List<object> Outcomes = [];
+    private static readonly List<object> MemorySamples = [];
     private static int _passed, _failed;
 
     [STAThread]
@@ -81,6 +84,39 @@ internal static class Program
                     Require(Text(window) != before, "Last segment did not replace the first.");
                     Require(window.Reader.Document.Blocks.Count <= ReaderLimits.BlocksPerView, "View exceeds block limit.");
                 });
+                await Check("Full screen enters and exits through its toolbar button", async () =>
+                {
+                    WindowStyle style = window.WindowStyle;
+                    WindowState state = window.WindowState;
+                    window.FullScreenButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    await Idle(window);
+                    Require(window.WindowStyle == WindowStyle.None && window.WindowState == WindowState.Maximized, "Full screen did not open.");
+                    Require((string)window.FullScreenButton.Content == "退出全屏", "Exit control is missing.");
+                    window.FullScreenButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    await Idle(window);
+                    Require(window.WindowStyle == style && window.WindowState == state, "Window state did not restore.");
+                });
+                await Check("Local file policy rejects UNC paths before opening them", () =>
+                {
+                    Require(MainWindow.LocalFile(sample) == sample, "Local sample was rejected.");
+                    bool rejected = false;
+                    try { MainWindow.LocalFile(@"\\unreachable.invalid\books\test.epub"); }
+                    catch (EpubException) { rejected = true; }
+                    Require(rejected, "UNC path was accepted.");
+                    return Task.CompletedTask;
+                });
+                await Check("Native image decoding honors the total pixel budget and supports GIF", async () =>
+                {
+                    string fixture = Path.Combine(temporary, "image-budget.epub");
+                    WriteImageFixture(fixture);
+                    using var book = EpubBook.Open(fixture);
+                    ParsedChapter chapter = book.ReadChapter(0);
+                    PreparedImages prepared = await Task.Run(() => DocumentRenderer.PrepareImages(book, chapter, 0, chapter.Blocks.Count, CancellationToken.None));
+                    long pixels = prepared.Images.Values.OfType<BitmapSource>().Sum(b => (long)b.PixelWidth * b.PixelHeight);
+                    Require(pixels > 0 && pixels <= ReaderLimits.ImageViewPixels, "Decoded images exceeded their pixel budget.");
+                    Require(prepared.Skipped > 0, "Excess images were not skipped.");
+                    Require(prepared.Images.ContainsKey("small.gif"), "A valid first GIF frame failed to decode.");
+                });
                 await Check("Full-text search renders results and local hyperlinks have no external URI", async () =>
                 {
                     window.SearchBox.Text = "阅读";
@@ -122,15 +158,27 @@ internal static class Program
                 });
                 await Check("Rapid book replacement cancels retired operations", async () =>
                 {
-                    Task first = window.OpenBookAsync(sample);
-                    Task second = window.OpenBookAsync(sample);
-                    await Task.WhenAll(first, second);
+                    Task[] replacements = Enumerable.Range(0, 12).Select(_ => window.OpenBookAsync(sample)).ToArray();
+                    await Task.WhenAll(replacements);
                     Require(window.BookTitleText.Text == "静读 · 阅读指南" && window.Reader.IsEnabled, "Book replacement did not settle.");
+                });
+                await Check("Returning home during navigation clears document and stale callbacks", async () =>
+                {
+                    Task pending = window.NavigateAsync(3);
+                    window.HomeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    await pending;
+                    await Idle(window);
+                    Require(window.Reader.Document == null && window.TocList.Items.Count == 0, "Retired content was retained.");
+                    Require(window.WelcomePane.Visibility == Visibility.Visible && window.StatusText.Text == "就绪", "A stale callback changed the home page.");
+                    await window.OpenBookAsync(sample);
                 });
                 await Check("Closing saves isolated history, preferences and bookmarks", async () =>
                 {
                     await window.NavigateAsync(2);
+                    Task pending = window.NavigateAsync(3);
                     window.Close();
+                    await pending;
+                    await window.OpenBookAsync(sample); // closed windows ignore further requests
                     AppState state = store.Load();
                     Require(!store.LoadFailed && state.Books.Count == 1, "History did not persist.");
                     Require(state.Books[0].ChapterIndex == 2 && state.Books[0].Bookmarks.Count == 1, "Reading position/bookmark missing.");
@@ -168,6 +216,16 @@ internal static class Program
     {
         if (exception == null) _passed++; else _failed++;
         Outcomes.Add(new { name, passed = exception == null, error = exception?.ToString() });
+        using var process = Process.GetCurrentProcess();
+        process.Refresh();
+        MemorySamples.Add(new
+        {
+            after = name,
+            workingSetBytes = process.WorkingSet64,
+            privateBytes = process.PrivateMemorySize64,
+            peakWorkingSetBytes = process.PeakWorkingSet64,
+            managedBytes = GC.GetTotalMemory(false)
+        });
         Console.WriteLine($"{(exception == null ? "PASS" : "FAIL")} {name}{(exception == null ? "" : ": " + exception.Message)}");
     }
 
@@ -182,7 +240,9 @@ internal static class Program
             windowsUiExecuted = true,
             passed = _passed,
             failed = _failed,
-            tests = Outcomes
+            tests = Outcomes,
+            memorySamples = MemorySamples,
+            memoryNote = "Hosted Windows runner; includes synthetic image stress and test harness. No forced GC; not a Windows 11 idle-memory benchmark."
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -206,12 +266,33 @@ internal static class Program
     private static void Capture(MainWindow window, string path)
     {
         window.UpdateLayout();
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(window.ActualWidth), (int)Math.Ceiling(window.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(window);
+        var content = (FrameworkElement)window.Content;
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(content);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    private static void WriteImageFixture(string path)
+    {
+        var bitmap = BitmapSource.Create(1600, 1200, 96, 96, PixelFormats.Bgra32, null, new byte[1600 * 1200 * 4], 1600 * 4);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var png = new MemoryStream(); encoder.Save(png);
+        using var file = File.Create(path);
+        using var zip = new ZipArchive(file, ZipArchiveMode.Create);
+        void Add(string name, byte[] data)
+        { using Stream entry = zip.CreateEntry(name).Open(); entry.Write(data); }
+        void Xml(string name, string text) => Add(name, System.Text.Encoding.UTF8.GetBytes(text));
+        Xml("mimetype", "application/epub+zip");
+        Xml("META-INF/container.xml", "<container><rootfiles><rootfile full-path='book.opf'/></rootfiles></container>");
+        string manifest = string.Concat(Enumerable.Range(0, 9).Select(i => $"<item id='i{i}' href='i{i}.png' media-type='image/png'/>"));
+        Xml("book.opf", "<package><metadata><title>Image budget test</title></metadata><manifest><item id='c' href='c.xhtml' media-type='application/xhtml+xml'/>" + manifest +
+            "<item id='gif' href='small.gif' media-type='image/gif'/></manifest><spine><itemref idref='c'/></spine></package>");
+        Xml("c.xhtml", "<html><body>" + string.Concat(Enumerable.Range(0, 9).Select(i => $"<img src='i{i}.png'/>")) + "<img src='small.gif'/></body></html>");
+        for (int i = 0; i < 9; i++) Add($"i{i}.png", png.ToArray());
+        Add("small.gif", Convert.FromHexString("47494638396101000100800000000000FFFFFF2C00000000010001000002024401003B"));
     }
 }

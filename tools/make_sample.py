@@ -11,20 +11,20 @@ chapters = [
 <p>一本书，一段安静的时间。QuietRead 用简洁的 Windows 原生界面，让文字回到阅读的中心。</p>
 <p>点击右上角的 <strong>Aa</strong>，可以调整字号、行距和阅读宽度。纸白适合明亮的房间，暖色更柔和，夜间模式适合低光环境。</p>
 <blockquote><p>让阅读适合你的节奏。</p></blockquote>
-<h2 id="navigation">从目录开始</h2><p>左侧目录可以直接跳转。正文里的内链也能带你去书内的相关位置。例如，<a href="c1.xhtml#keys">查看快捷键</a>。</p>
+<h2 id="navigation">从目录开始</h2><p>左侧目录可以直接跳转。正文里的内链也能带你去书内的相关位置。例如，<a href="c1.xhtml#navigation">查看翻页与查找说明</a>。</p>
 <p>阅读位置自动保存在本机。下次从「最近」打开同一个文件，便可继续阅读。</p>"""),
-    ("轻松翻页与查找", """<h1 id="keys">轻松翻页与查找</h1>
-<p>Space、Page Down 或右方向键阅读下一屏。在长章节段尾，再按一次继续下一段。底部的「下一页」有同样的作用。</p>
-<ul><li>Ctrl+O：打开 EPUB。</li><li>Ctrl+F：全文搜索。</li><li>Ctrl+D：添加当前位置书签。</li><li>F11：进入全屏；Esc 退出。</li></ul>
-<p>试着在左侧「查找」输入「阅读」。搜索结果可以点击，匹配文字会显示背景高亮。</p>
-<p>Ctrl+方向键可以切换章节。<a href="c0.xhtml#welcome">返回欢迎页</a>。</p>
+    ("轻松翻页与查找", """<h1 id="navigation">轻松翻页与查找</h1>
+<p>用滚轮滚动，或点击底部「下一页」阅读下一屏。在长章节段尾，点击翻页会继续下一段或下一章。</p>
+<ul><li>「打开」：选择本地 EPUB。</li><li>「查找」：输入文字，再点击查找按钮。</li><li>「＋书签」：保存当前位置。</li><li>「全屏」：放大阅读区域，点击「退出全屏」恢复。</li></ul>
+<p>试着在左侧「查找」输入「阅读」，再点击「查找」。搜索结果可以点击，匹配文字会显示背景高亮。</p>
+<p>点击目录可以切换章节。<a href="c0.xhtml#welcome">返回欢迎页</a>。</p>
 <h2>基本表格与代码</h2><table><tr><th>操作</th><th>位置</th></tr><tr><td>调整外观</td><td>右上角 Aa</td></tr><tr><td>继续阅读</td><td>最近阅读列表</td></tr></table><pre>QuietRead.exe "C:\\Books\\example.epub"</pre>"""),
     ("A quiet reading moment", """<h1>A quiet reading moment</h1>
 <p>The window is open. The desk is clear. A book waits beside a warm cup of tea.</p>
 <p>There is no rush. You can read a paragraph, look away, and return when you are ready. The place will still be there.</p>
 <p><em>Choose a comfortable size. Let the lines breathe. Read at your own pace.</em></p>
 <p>This short chapter also lets you try the Georgia font for English text. Select <strong>Aa → Georgia</strong> and compare the reading experience.</p>"""),
-    ("长章节体验", "<h1>长章节体验</h1><p>这章有许多简短段落，用于体验分段显示。滚动到底后，用 Space 或「下一页」继续。</p>" + "".join(
+    ("长章节体验", "<h1>长章节体验</h1><p>这章有许多简短段落，用于体验分段显示。滚动到底后，点击「下一页」继续。</p>" + "".join(
         f"<p>第 {i} 段。书页上的文字安静地排列着。窗外的光慢慢变化，阅读的节奏由你决定。每一段都可以停留，也可以继续。当前位置会自动保存。</p>" for i in range(1, 321))),
 ]
 

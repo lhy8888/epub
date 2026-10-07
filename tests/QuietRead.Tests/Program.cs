@@ -11,6 +11,7 @@ using QuietRead.Core;
 string root = Path.Combine(Path.GetTempPath(), "QuietRead-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var outcomes = new List<object>();
+var allocationResults = new List<object>();
 int passed = 0, failed = 0;
 var tests = new List<(string Name, Action Run)>();
 int fixtureIndex = 0;
@@ -168,6 +169,77 @@ Test("ZIP64 directory is supported within the same resource limits", () =>
     using var book = EpubBook.Open(path); Check.Equal("zip64 content", book.ReadChapter(0).Blocks[0].PlainText);
 });
 
+Test("ZIP comments cannot redirect the runtime to an unchecked directory", () =>
+{
+    var entries = Fixtures.Book(["<p>one</p>"]); entries["unused.bin"] = [1, 2, 3];
+    byte[] zip = Fixtures.ShadowDirectory(Fixtures.Zip(entries));
+    string path = Path.Combine(root, "shadow-directory.epub"); File.WriteAllBytes(path, zip);
+    Check.Throws<EpubException>(() => EpubBook.Open(path));
+    zip = Fixtures.Zip(entries);
+    int end = Fixtures.End(zip); byte[] comment = Fixtures.Utf8("a harmless ZIP comment");
+    BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(end + 20), (ushort)comment.Length);
+    File.WriteAllBytes(path, zip.Concat(comment).ToArray());
+    using var book = EpubBook.Open(path); Check.Equal("one", book.ReadChapter(0).Blocks[0].PlainText);
+});
+
+Test("ZIP64 records must agree with classic fields and their physical boundary", () =>
+{
+    foreach (bool mismatchedCount in new[] { false, true })
+    {
+        byte[] zip = Fixtures.Zip64(Fixtures.Zip(Fixtures.Book(["<p>one</p>"])));
+        int end = Fixtures.End(zip);
+        if (mismatchedCount)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(end + 8), 1);
+            BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(end + 10), 1);
+        }
+        else BinaryPrimitives.WriteUInt64LittleEndian(zip.AsSpan(end - 76 + 4), 1000);
+        string path = Path.Combine(root, "inconsistent-zip64.epub"); File.WriteAllBytes(path, zip);
+        Check.Throws<EpubException>(() => EpubBook.Open(path));
+    }
+});
+
+Test("Compressed input is bounded independently of its declared output", () =>
+{
+    var entries = Fixtures.Book(["<p>one</p>"]); entries["unused.bin"] = [1, 2, 3];
+    byte[] zip = Fixtures.Zip(entries);
+    Fixtures.ChangeCentral(zip, "unused.bin", (bytes, at) =>
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at + 20), (uint)ReaderLimits.EntryBytes + 1));
+    string path = Path.Combine(root, "compressed-limit.epub"); File.WriteAllBytes(path, zip);
+    Check.Throws<EpubException>(() => EpubBook.Open(path));
+});
+
+Test("A read resource must match its ZIP CRC even when its XML remains valid", () =>
+{
+    byte[] zip = Fixtures.Zip(Fixtures.Book(["<p>valid Unicode 文字 😀</p>"]));
+    Fixtures.ChangeCentral(zip, "OEBPS/c0.xhtml", (bytes, at) => bytes[at + 16] ^= 1);
+    string path = Path.Combine(root, "crc-mismatch.epub"); File.WriteAllBytes(path, zip);
+    using var book = EpubBook.Open(path);
+    Check.Throws<EpubException>(() => book.ReadChapter(0));
+});
+
+Test("XML attribute floods count toward structural limits", () =>
+{
+    foreach (int count in new[] { 257, 2000 })
+    {
+        string attributes = string.Concat(Enumerable.Range(0, count).Select(i => $" a{i}='x'"));
+        using var book = EpubBook.Open(WriteFixture(Fixtures.Book([$"<p{attributes}>small text</p>"])));
+        Check.Throws<EpubException>(() => book.ReadChapter(0));
+    }
+    string body = string.Concat(Enumerable.Range(0, 500).Select(i =>
+        "<p" + string.Concat(Enumerable.Range(0, 160).Select(j => $" a{j}='x'")) + ">t</p>"));
+    using var flooded = EpubBook.Open(WriteFixture(Fixtures.Book([body])));
+    Check.Throws<EpubException>(() => flooded.ReadChapter(0));
+});
+
+Test("TOC preserves the first title even when it resembles an automatic title", () =>
+{
+    var entries = Fixtures.Book(["<p id='a'>one</p><p id='b'>two</p>"]);
+    entries["OEBPS/nav.xhtml"] = Fixtures.Utf8(Fixtures.Html("<nav><ol><li><a href='c0.xhtml#a'>第 1 章</a></li><li><a href='c0.xhtml#b'>章节内的小节</a></li></ol></nav>"));
+    using var book = EpubBook.Open(WriteFixture(entries));
+    Check.Equal("第 1 章", book.Chapters[0].Title); Check.Equal(2, book.TableOfContents.Count);
+});
+
 Test("XML nesting and node-count limits reject resource exhaustion", () =>
 {
     foreach (string content in new[] { string.Concat(Enumerable.Repeat("<div>", 70)) + "deep" + string.Concat(Enumerable.Repeat("</div>", 70)), string.Concat(Enumerable.Repeat("<br/>", 76_000)) })
@@ -237,6 +309,17 @@ Test("Oversized raster and mismatched MIME are rejected", () =>
     using (var book = EpubBook.Open(WriteFixture(entries))) Check.Throws<EpubException>(() => book.ReadImage("OEBPS/image.png"));
 });
 
+Test("GIF frame sizes and truncation are checked before native decoding", () =>
+{
+    byte[] gif = Convert.FromHexString("47494638396101000100800000000000FFFFFF2C00000000010001000002024401003B");
+    Check.Equal("gif", RasterGuard.Inspect(gif).Format);
+    byte[] oversized = gif.ToArray();
+    BinaryPrimitives.WriteUInt16LittleEndian(oversized.AsSpan(24), 16_000);
+    BinaryPrimitives.WriteUInt16LittleEndian(oversized.AsSpan(26), 16_000);
+    Check.Throws<EpubException>(() => RasterGuard.Inspect(oversized));
+    Check.Throws<EpubException>(() => RasterGuard.Inspect(gif.AsSpan(0, 31)));
+});
+
 Test("DRM and fixed layout report an explicit unsupported-format error", () =>
 {
     var entries = Fixtures.Book(["<p>one</p>"]);
@@ -269,8 +352,34 @@ Test("Chapter loading is lazy and its cache stays bounded", () =>
     var entries = Fixtures.Book(Enumerable.Range(0, 8).Select(x => "<p>Chapter " + x + "</p>").ToArray());
     entries["OEBPS/c7.xhtml"] = Fixtures.Utf8("<not well formed");
     using var book = EpubBook.Open(WriteFixture(entries)); Check.Equal(0, book.CachedChapterCount);
-    for (int i = 0; i < 7; i++) { book.ReadChapter(i); Check.True(book.CachedChapterCount <= 3); }
-    Check.Equal(3, book.CachedChapterCount); Check.Throws<EpubException>(() => book.ReadChapter(7));
+    for (int i = 0; i < 7; i++)
+    { book.ReadChapter(i); Check.True(book.CachedChapterCount <= ReaderLimits.CacheChapters); Check.True(book.EstimatedCacheBytes <= ReaderLimits.CacheBytes); }
+    Check.Equal(ReaderLimits.CacheChapters, book.CachedChapterCount); Check.Throws<EpubException>(() => book.ReadChapter(7));
+});
+
+Test("Anchor-heavy chapters cannot bypass the cache memory budget", () =>
+{
+    string body = "<p>text" + string.Concat(Enumerable.Range(0, 10_000).Select(i =>
+        "<span id='" + i + new string('a', 410) + "'/>")) + "</p>";
+    using var book = EpubBook.Open(WriteFixture(Fixtures.Book([body])));
+    ParsedChapter chapter = book.ReadChapter(0);
+    Check.Equal(10_000, chapter.Anchors.Count);
+    Check.True(chapter.EstimatedMemoryBytes > ReaderLimits.CacheBytes);
+    Check.Equal(0, book.CachedChapterCount); Check.Equal(0L, book.EstimatedCacheBytes);
+});
+
+Test("Cached no-match searches avoid allocating another copy of the chapter text", () =>
+{
+    string body = string.Concat(Enumerable.Repeat("<p>" + new string('a', 500) + "<em>bb</em>😀</p>", 1800));
+    using var book = EpubBook.Open(WriteFixture(Fixtures.Book([body])));
+    book.ReadChapter(0); book.Search("missing");
+    long allocated = GC.GetAllocatedBytesForCurrentThread();
+    Check.Equal(0, book.Search("missing").Hits.Count);
+    allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+    Check.True(allocated < 256_000, $"A cached search allocated {allocated} bytes.");
+    allocationResults.Add(new { name = "Cached no-match search", characters = book.ReadChapter(0).CharacterCount, allocatedBytes = allocated });
+    Console.WriteLine($"MEMORY cached no-match search: {allocated} bytes allocated.");
+    Check.Equal(ReaderLimits.SearchResults, book.Search("Abb").Hits.Count);
 });
 
 Test("Search handles Unicode, skips broken chapters and caps results", () =>
@@ -430,6 +539,7 @@ try
             passed,
             failed,
             tests = outcomes,
+            memoryChecks = allocationResults,
             compatibility = compatibilityResults,
             benchmarks = benchmarkResults
         }, new JsonSerializerOptions { WriteIndented = true }));
@@ -517,6 +627,23 @@ static class Fixtures
         writer.Write(0x07064b50U); writer.Write(0U); writer.Write((ulong)end); writer.Write(1U);
         writer.Write(0x06054b50U); writer.Write((ushort)0); writer.Write((ushort)0); writer.Write(ushort.MaxValue); writer.Write(ushort.MaxValue);
         writer.Write(uint.MaxValue); writer.Write(uint.MaxValue); writer.Write((ushort)0);
+        return stream.ToArray();
+    }
+    public static byte[] ShadowDirectory(byte[] input)
+    {
+        int end = End(input);
+        int offset = (int)BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(end + 16));
+        byte[] checkedDirectory = input.AsSpan(offset, end - offset).ToArray();
+        byte[] realEnd = input.AsSpan(end, 22).ToArray();
+        ChangeCentral(input, "unused.bin", (bytes, at) => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(at + 10), 99));
+        using var stream = new MemoryStream();
+        stream.Write(input.AsSpan(0, end));
+        stream.Write(new byte[4]); // stop runtime enumeration at the first directory
+        stream.Write(checkedDirectory);
+        byte[] validatedEnd = realEnd.ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(validatedEnd.AsSpan(16), (uint)end + 4);
+        BinaryPrimitives.WriteUInt16LittleEndian(validatedEnd.AsSpan(20), 24);
+        stream.Write(validatedEnd); stream.Write(realEnd); stream.WriteByte(0); stream.WriteByte(0);
         return stream.ToArray();
     }
     public static byte[] Png(uint width, uint height)

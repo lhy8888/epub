@@ -3,14 +3,14 @@
         Width="1180" Height="840" MinWidth="700" MinHeight="460" WindowStartupLocation="CenterScreen"
         Background="{DynamicResource AppBrush}" Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI, Microsoft YaHei UI" AllowDrop="True" Loaded="Window_Loaded"
-        DragOver="Window_DragOver" Drop="Window_Drop" PreviewKeyDown="Window_KeyDown" Closing="Window_Closing">
+        DragOver="Window_DragOver" Drop="Window_Drop" Closing="Window_Closing">
   <Grid>
     <Grid.RowDefinitions><RowDefinition Height="64" /><RowDefinition Height="3" /><RowDefinition Height="*" /><RowDefinition Height="48" /></Grid.RowDefinitions>
     <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
       <Grid Margin="16,0">
         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="SidebarButton" Content="☰" FontSize="19" Width="38" Padding="0" Click="Sidebar_Click" ToolTip="显示或隐藏目录 (Ctrl+B)" AutomationProperties.Name="显示或隐藏目录" />
+          <Button x:Name="SidebarButton" Content="☰" FontSize="19" Width="38" Padding="0" Click="Sidebar_Click" ToolTip="显示或隐藏目录" AutomationProperties.Name="显示或隐藏目录" />
           <Path Data="M 1,2 L 1,22 C 7,21 10,22 13,24 C 16,22 19,21 25,22 L 25,2 C 20,1 16,2 13,4 C 10,2 6,1 1,2 M 13,4 L 13,24"
                 Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.7" Width="26" Height="26" Margin="12,0,10,0" />
           <TextBlock Text="静读" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -20,9 +20,10 @@
           <TextBlock x:Name="BookAuthorText" Text="留一点时间，给阅读。" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Content="最近" Click="Home_Click" ToolTip="返回最近阅读 (Ctrl+W)" />
-          <Button Content="打开" Click="Open_Click" ToolTip="打开 EPUB (Ctrl+O)" />
-          <Button x:Name="BookmarkButton" Content="＋书签" Click="Bookmark_Click" IsEnabled="False" ToolTip="添加当前位置书签 (Ctrl+D)" />
+          <Button x:Name="HomeButton" Content="最近" Click="Home_Click" ToolTip="返回最近阅读" />
+          <Button Content="打开" Click="Open_Click" ToolTip="打开 EPUB" />
+          <Button x:Name="BookmarkButton" Content="＋书签" Click="Bookmark_Click" IsEnabled="False" ToolTip="添加当前位置书签" />
+          <Button x:Name="FullScreenButton" Content="全屏" Click="FullScreen_Click" ToolTip="切换全屏阅读" />
           <Button x:Name="AppearanceButton" Content="Aa" FontSize="19" Click="Appearance_Click" ToolTip="阅读外观" AutomationProperties.Name="阅读外观" />
         </StackPanel>
       </Grid>
@@ -59,10 +60,10 @@
             <TabItem Header="查找">
               <Grid Margin="10,12"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                  <TextBox x:Name="SearchBox" MaxLength="128" KeyDown="Search_KeyDown" AutomationProperties.Name="全文搜索关键词" />
+                  <TextBox x:Name="SearchBox" MaxLength="128" AutomationProperties.Name="全文搜索关键词" />
                   <Button x:Name="SearchButton" Grid.Column="1" Content="查找" Click="Search_Click" Padding="8,6" IsEnabled="False" />
                 </Grid>
-                <TextBlock x:Name="SearchStatusText" Grid.Row="1" Text="输入文字，按 Enter 搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" />
+                <TextBlock x:Name="SearchStatusText" Grid.Row="1" Text="输入文字，点击「查找」搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" />
                 <ListBox x:Name="SearchList" Grid.Row="2" Padding="0" SelectionChanged="Search_SelectionChanged" AutomationProperties.Name="全文搜索结果">
                   <ListBox.ItemTemplate><DataTemplate>
                     <StackPanel><TextBlock Text="{Binding ChapterTitle}" FontSize="11" Foreground="{DynamicResource AccentBrush}" />
@@ -115,9 +116,9 @@
       <Grid Margin="18,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
         <TextBlock x:Name="StatusText" Text="就绪" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" Margin="0,0,18,0" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="PreviousButton" Content="← 上一页" Click="Previous_Click" IsEnabled="False" FontSize="12" ToolTip="上一屏；Ctrl+← 切换到上一章" />
+          <Button x:Name="PreviousButton" Content="← 上一页" Click="Previous_Click" IsEnabled="False" FontSize="12" ToolTip="上一屏；到达段首后继续上一段或上一章" />
           <TextBlock x:Name="ProgressText" Text="—" VerticalAlignment="Center" FontSize="12" MinWidth="140" TextAlignment="Center" Margin="12,0" />
-          <Button x:Name="NextButton" Content="下一页 →" Click="Next_Click" IsEnabled="False" FontSize="12" ToolTip="下一屏；Ctrl+→ 切换到下一章" />
+          <Button x:Name="NextButton" Content="下一页 →" Click="Next_Click" IsEnabled="False" FontSize="12" ToolTip="下一屏；到达段尾后继续下一段或下一章" />
         </StackPanel>
         <TextBlock x:Name="PartText" Grid.Column="2" Text="" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" />
       </Grid>
@@ -145,7 +146,7 @@
           <Slider x:Name="LineSlider" Minimum="1.2" Maximum="2.4" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="1.8" ValueChanged="Appearance_Changed" Margin="0,10,0,18" AutomationProperties.Name="正文行距" />
           <TextBlock Text="阅读宽度" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" />
           <Slider x:Name="WidthSlider" Minimum="520" Maximum="1100" TickFrequency="20" IsSnapToTickEnabled="True" Value="800" ValueChanged="Appearance_Changed" Margin="0,10,0,18" AutomationProperties.Name="阅读宽度" />
-          <Button Content="快捷键与说明" Click="Help_Click" FontSize="12" />
+          <Button Content="使用说明" Click="Help_Click" FontSize="12" />
         </StackPanel>
       </Border>
     </Popup>

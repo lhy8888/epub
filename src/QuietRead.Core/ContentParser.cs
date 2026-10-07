@@ -123,8 +123,8 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         int at = 0;
         while (at < text.Length)
         {
-            if (_pendingCharacters >= 4096 || _pending.Count >= 512) Flush();
-            int length = Math.Min(text.Length - at, 4096 - _pendingCharacters);
+            if (_pendingCharacters >= ReaderLimits.BlockCharacters || _pending.Count >= ReaderLimits.BlockInlines) Flush();
+            int length = Math.Min(text.Length - at, ReaderLimits.BlockCharacters - _pendingCharacters);
             if (at + length < text.Length && length > 0 && char.IsHighSurrogate(text[at + length - 1])) length--;
             if (length == 0) { Flush(); continue; }
             string part = text.Substring(at, length);
@@ -158,18 +158,22 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
     }
 
     private static string Name(XElement element) => element.Name.LocalName.ToLowerInvariant();
-    private static string Collapse(string value)
+    private string Collapse(string value)
     {
-        var result = new StringBuilder(value.Length);
+        var result = new StringBuilder(Math.Min(value.Length, ReaderLimits.BlockCharacters));
         bool space = false;
+        int scanned = 0;
         foreach (char c in value)
         {
+            if ((++scanned & 4095) == 0) token.ThrowIfCancellationRequested();
             if (char.IsWhiteSpace(c) && c != '\u00a0')
             {
                 if (!space) { result.Append(' '); }
                 space = true;
             }
             else { result.Append(c); space = false; }
+            if (result.Length > ReaderLimits.ChapterCharacters - _characters)
+                throw new EpubException("章节文字量过多，已停止加载。");
         }
         return result.ToString();
     }
