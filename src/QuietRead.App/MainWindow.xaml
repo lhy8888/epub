@@ -4,7 +4,7 @@
         Background="{DynamicResource AppBrush}" Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI, Microsoft YaHei UI" AllowDrop="True" Loaded="Window_Loaded"
         DragOver="Window_DragOver" Drop="Window_Drop" Closing="Window_Closing">
-  <Grid>
+  <Grid Background="{DynamicResource AppBrush}">
     <Grid.RowDefinitions><RowDefinition Height="64" /><RowDefinition Height="3" /><RowDefinition Height="*" /><RowDefinition Height="48" /></Grid.RowDefinitions>
     <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
       <Grid Margin="16,0">

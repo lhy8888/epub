@@ -127,6 +127,17 @@ internal static class Program
                         .SelectMany(p => p.Inlines.OfType<Hyperlink>()))
                         Require(link.NavigateUri == null, "Hyperlink could navigate outside the book.");
                 });
+                await Check("Search highlights a phrase crossing a bold text boundary", async () =>
+                {
+                    window.SearchBox.Text = "的 Aa";
+                    await window.SearchAsync();
+                    Require(window.SearchList.Items.Count > 0, "Cross-format search returned no results.");
+                    await window.NavigateAsync(0);
+                    string highlighted = string.Concat(window.Reader.Document.Blocks.OfType<Paragraph>()
+                        .SelectMany(p => p.Inlines.OfType<Span>()).SelectMany(s => s.Inlines.OfType<Run>())
+                        .Where(r => r.ReadLocalValue(TextElement.BackgroundProperty) != DependencyProperty.UnsetValue).Select(r => r.Text));
+                    Require(highlighted.Contains("的 Aa", StringComparison.Ordinal), "Highlight stopped at the bold boundary.");
+                });
                 await Check("Bookmark button stores one bookmark and rejects duplicates", () =>
                 {
                     window.BookmarkButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

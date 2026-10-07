@@ -100,6 +100,7 @@ internal static class DocumentRenderer
         document.SetResourceReference(FlowDocument.BackgroundProperty, "ReaderBrush");
         blocks = [];
         int highlightsLeft = 1000;
+        Span<char> textBuffer = stackalloc char[ReaderLimits.BlockCharacters + 3];
         for (int i = start; i < end; i++)
         {
             BookBlock block = chapter.Blocks[i];
@@ -145,6 +146,8 @@ internal static class DocumentRenderer
             else
             {
                 var paragraph = new Paragraph();
+                IReadOnlyList<TextMatch> matches = FindMatches(block, textBuffer, highlight, ref highlightsLeft);
+                int offset = 0;
                 foreach (BookInline inline in block.Inlines)
                 {
                     Span span = inline.Link == null ? new Span() : new Hyperlink();
@@ -161,7 +164,8 @@ internal static class DocumentRenderer
                     { span.FontFamily = new FontFamily("Consolas, Microsoft YaHei UI"); span.FontSize = preferences.FontSize * 0.88; }
                     if (inline.Style.HasFlag(TextStyle.Superscript)) span.BaselineAlignment = BaselineAlignment.Superscript;
                     if (inline.Style.HasFlag(TextStyle.Subscript)) span.BaselineAlignment = BaselineAlignment.Subscript;
-                    AddRuns(span, inline.Text, highlight, ref highlightsLeft);
+                    AddRuns(span, inline.Text, matches, offset);
+                    offset += inline.Text.Length;
                     paragraph.Inlines.Add(span);
                 }
                 ApplyParagraph(paragraph, block, preferences);
@@ -173,20 +177,47 @@ internal static class DocumentRenderer
         return document;
     }
 
-    private static void AddRuns(Span span, string text, string query, ref int highlightsLeft)
+    private readonly record struct TextMatch(int Start, int End);
+
+    private static IReadOnlyList<TextMatch> FindMatches(BookBlock block, Span<char> buffer, string query, ref int highlightsLeft)
     {
-        if (string.IsNullOrEmpty(query)) { span.Inlines.Add(new Run(text)); return; }
-        int start = 0, highlighted = 0;
-        while (start < text.Length)
+        if (string.IsNullOrEmpty(query) || highlightsLeft <= 0) return Array.Empty<TextMatch>();
+        int length = 0;
+        for (int i = 0; i < block.Inlines.Count; i++)
         {
-            int at = highlighted < 128 && highlightsLeft > 0 ? text.IndexOf(query, start, StringComparison.OrdinalIgnoreCase) : -1;
-            if (at < 0) { span.Inlines.Add(new Run(text[start..])); break; }
-            if (at > start) span.Inlines.Add(new Run(text[start..at]));
-            var run = new Run(text.Substring(at, query.Length));
+            string text = block.Inlines[i].Text;
+            text.AsSpan().CopyTo(buffer[length..]); length += text.Length;
+        }
+        var matches = new List<TextMatch>();
+        ReadOnlySpan<char> content = buffer[..length];
+        int start = 0;
+        while (start < length && matches.Count < 128 && highlightsLeft > 0)
+        {
+            int found = content[start..].IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
+            if (found < 0) break;
+            int at = start + found;
+            matches.Add(new TextMatch(at, at + query.Length));
+            start = at + query.Length; highlightsLeft--;
+        }
+        return matches;
+    }
+
+    private static void AddRuns(Span span, string text, IReadOnlyList<TextMatch> matches, int offset)
+    {
+        if (matches.Count == 0) { span.Inlines.Add(new Run(text)); return; }
+        int position = 0;
+        foreach (TextMatch match in matches)
+        {
+            if (match.Start >= offset + text.Length) break;
+            if (match.End <= offset) continue;
+            int start = Math.Max(0, match.Start - offset), end = Math.Min(text.Length, match.End - offset);
+            if (start > position) span.Inlines.Add(new Run(text[position..start]));
+            var run = new Run(text.Substring(start, end - start));
             run.SetResourceReference(TextElement.BackgroundProperty, "HighlightBrush");
             run.SetResourceReference(TextElement.ForegroundProperty, "TextBrush");
-            span.Inlines.Add(run); start = at + query.Length; highlighted++; highlightsLeft--;
+            span.Inlines.Add(run); position = end;
         }
+        if (position < text.Length) span.Inlines.Add(new Run(text[position..]));
     }
 
     public static FontFamily Font(string choice) => new(choice switch

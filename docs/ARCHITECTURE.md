@@ -32,7 +32,7 @@
 | 格式、编译、分析器 | `dotnet format whitespace`；Release 编译；警告与 .NET 安全分析器错误会阻断构建 |
 | NuGet 审计 | 锁定依赖还原；审计直接/传递依赖的所有漏洞级别；已知漏洞会导致失败 |
 | Windows / Linux 核心测试 | 47 项核心、安全及兼容性回归；解析示例 EPUB；输出性能测量与 JSON 报告 |
-| Windows WPF 冒烟测试 | 实际显示窗口、封面解码、长章分段、导航、搜索、书签、主题、字号、按钮全屏、路径限制、换书/主页/关闭取消、保存与续读；输出真实窗口图和 JSON 报告 |
+| Windows WPF 冒烟测试 | 实际显示窗口、封面解码、长章分段、导航、搜索及跨排版高亮、书签、主题、字号、按钮全屏、路径限制、换书/主页/关闭取消、保存与续读；输出真实窗口图和 JSON 报告 |
 | 包验证 | Windows x64 GUI PE、运行时和许可证完整性、ZIP CRC 与 SHA-256；实际启动便携 EXE 打开示例书并正常关闭 |
 | CodeQL | 扫描 C# 和 GitHub Actions；错误和安全分值 ≥7 的高危/严重发现会失败；上传 [Security](https://github.com/lhy8888/epub/security/code-scanning) 和 SARIF 报告，每周重新扫描 |
 | Dependabot | 每周检查 Action 和 NuGet 更新，通过 PR 提交变更 |
