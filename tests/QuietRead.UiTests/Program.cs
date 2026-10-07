@@ -135,7 +135,7 @@ internal static class Program
                     Require(!store.LoadFailed && state.Books.Count == 1, "History did not persist.");
                     Require(state.Books[0].ChapterIndex == 2 && state.Books[0].Bookmarks.Count == 1, "Reading position/bookmark missing.");
                     Require(Math.Abs(state.Preferences.FontSize - 28) < 0.01, "Preferences did not persist.");
-                    window = new MainWindow(store);
+                    window = new MainWindow(new StateStore(temporary));
                     window.Show();
                     await Idle(window);
                     await window.OpenBookAsync(sample);

@@ -56,10 +56,12 @@ def main():
         package = framework["name"].lower() + ".runtime.win-x64-" + framework["version"]
         if not any(path.name.startswith(package) for path in (ROOT / "licenses").iterdir()):
             raise ValueError(f"Missing notices for bundled runtime {package}; update licenses before publishing.")
-    for name in ("README.md", "LICENSE", "SECURITY.md", "CHANGELOG.md"):
+    for name in ("README.md", "LICENSE", "SECURITY.md", "CHANGELOG.md", "CONTRIBUTING.md"):
         shutil.copy2(ROOT / name, publish / name)
     for name in ("samples", "licenses"):
         shutil.copytree(ROOT / name, publish / name, dirs_exist_ok=True)
+    shutil.copytree(ROOT / "docs", publish / "docs", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("*.local.json"))
     (publish / "START-HERE.txt").write_text(
         "QuietRead · 静读 " + version + "\n\n"
         "1. Extract the entire ZIP before running QuietRead.exe.\n"
