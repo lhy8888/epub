@@ -309,6 +309,20 @@ Test("Oversized raster and mismatched MIME are rejected", () =>
     using (var book = EpubBook.Open(WriteFixture(entries))) Check.Throws<EpubException>(() => book.ReadImage("OEBPS/image.png"));
 });
 
+Test("A remaining image-input budget is checked before allocating the resource", () =>
+{
+    var entries = Fixtures.Book(["<p>image budget</p>"]);
+    Fixtures.AddManifest(entries, "<item id='image' href='image.png' media-type='image/png'/>");
+    byte[] image = new byte[1024 * 1024]; Fixtures.Png(10, 10).CopyTo(image, 0);
+    entries["OEBPS/image.png"] = image;
+    using var book = EpubBook.Open(WriteFixture(entries));
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    Check.Throws<EpubException>(() => book.ReadImage("OEBPS/image.png", maximumBytes: 32 * 1024));
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Check.True(allocated < 128 * 1024, $"An over-budget image allocated {allocated} bytes.");
+    Check.Equal(10, book.ReadImage("OEBPS/image.png").Info.Width);
+});
+
 Test("GIF frame sizes and truncation are checked before native decoding", () =>
 {
     byte[] gif = Convert.FromHexString("47494638396101000100800000000000FFFFFF2C00000000010001000002024401003B");
@@ -443,6 +457,28 @@ Test("State size and unknown schema are safely ignored", () =>
     var store = new StateStore(directory); Check.Equal(0, store.Load().Books.Count); Check.True(store.LoadFailed);
     File.WriteAllText(Path.Combine(directory, "state.json"), "{\"Schema\":888}");
     store = new StateStore(directory); Check.Equal(1, store.Load().Schema); Check.True(store.LoadFailed);
+});
+
+Test("The maximum bounded Unicode history can be saved and reloaded", () =>
+{
+    var state = new AppState
+    {
+        Books = Enumerable.Range(0, 32).Select(i => new BookHistory
+        {
+            BookKey = i.ToString("x64"),
+            FilePath = "C:/" + new string('\ue000', 2000) + ".epub",
+            Title = new string('题', 256),
+            Author = new string('作', 256),
+            Bookmarks = Enumerable.Range(0, 64).Select(_ => new Bookmark
+            { Label = new string('\ue001', 100), ChapterIndex = 4095, BlockIndex = 5999, Fraction = 0.987654321 }).ToList()
+        }).ToList()
+    };
+    byte[] bytes = StateStore.Snapshot(state);
+    Check.True(bytes.Length <= StateStore.MaxStateBytes);
+    var store = new StateStore(Path.Combine(root, "full-history")); store.Save(bytes);
+    AppState loaded = store.Load();
+    Check.False(store.LoadFailed); Check.Equal(32, loaded.Books.Count);
+    Check.True(loaded.Books.All(b => b.Bookmarks.Count == 64 && b.Bookmarks.All(m => m.Label.Length == 100)));
 });
 
 var benchmarkResults = new List<object>();

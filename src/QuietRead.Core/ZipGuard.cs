@@ -48,11 +48,14 @@ internal static class ZipGuard
             byte[] record = new byte[56];
             stream.ReadExactly(record);
             ulong recordSize = U64(record, 4);
-            if (U32(record, 0) != 0x06064b50 || recordSize < 44 ||
-                location > (ulong)(eocdPosition - 20) || recordSize > (ulong)(eocdPosition - 20) - location ||
-                recordSize + 12 != (ulong)(eocdPosition - 20) - location ||
+            if (U32(record, 0) != 0x06064b50 ||
                 U32(record, 16) != 0 || U32(record, 20) != 0 || U64(record, 24) != U64(record, 32))
                 throw new EpubException("ZIP64 目录无效。");
+            ulong locatorPosition = (ulong)(eocdPosition - 20);
+            if (location > locatorPosition) throw new EpubException("ZIP64 记录位置无效。");
+            ulong recordSpan = locatorPosition - location;
+            if (recordSize < 44 || recordSize > recordSpan || recordSpan - recordSize != 12)
+                throw new EpubException("ZIP64 记录长度无效。");
             if ((count != ushort.MaxValue && count != U64(record, 32)) ||
                 (size != uint.MaxValue && size != U64(record, 40)) ||
                 (offset != uint.MaxValue && offset != U64(record, 48)))

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
 
 namespace QuietRead.Core;
 
@@ -75,11 +77,13 @@ public sealed class AppState
 
 public sealed class StateStore
 {
-    public const int MaxStateBytes = 1024 * 1024;
+    // Fits 32 books with 64 bounded bookmarks each, even with escaped Unicode.
+    public const int MaxStateBytes = 2 * 1024 * 1024;
     private readonly string _path;
     private readonly object _writeGate = new();
     private long _savedRevision;
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = false, MaxDepth = 16 };
+    private static readonly JsonSerializerOptions Options = new()
+    { WriteIndented = false, MaxDepth = 16, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
     public bool LoadFailed { get; private set; }
 
     public StateStore(string? directory = null)

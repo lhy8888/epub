@@ -31,7 +31,8 @@ internal static class DocumentRenderer
         var images = new Dictionary<string, ImageSource>(StringComparer.Ordinal);
         var considered = new HashSet<string>(StringComparer.Ordinal);
         int skipped = 0, count = 0;
-        long decodedPixels = 0, sourceBytes = 0;
+        long decodedPixels = 0;
+        int sourceBytes = 0;
         for (int i = start; i < end; i++)
         {
             token.ThrowIfCancellationRequested();
@@ -42,7 +43,8 @@ internal static class DocumentRenderer
             if (++count > 24 || sourceBytes >= 32 * 1024 * 1024) { skipped++; continue; }
             try
             {
-                RasterData data = book.ReadImage(block.ImagePath, token);
+                int remaining = 32 * 1024 * 1024 - sourceBytes;
+                RasterData data = book.ReadImage(block.ImagePath, token, remaining);
                 sourceBytes += data.Bytes.Length;
                 if (sourceBytes > 32 * 1024 * 1024) { skipped++; continue; }
                 int width = Math.Min(1200, data.Info.Width);

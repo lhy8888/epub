@@ -237,7 +237,7 @@ public sealed class EpubBook : IDisposable
         }
     }
 
-    public RasterData ReadImage(string path, CancellationToken token = default)
+    public RasterData ReadImage(string path, CancellationToken token = default, int maximumBytes = ReaderLimits.ImageBytes)
     {
         lock (_gate)
         {
@@ -245,7 +245,8 @@ public sealed class EpubBook : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_mediaTypes.TryGetValue(path, out string? type) || type is not ("image/png" or "image/jpeg" or "image/gif" or "image/bmp"))
                 throw new EpubException("此图片格式暂不支持，或图片不在书籍资源清单中。");
-            byte[] bytes = ReadBytes(path, ReaderLimits.ImageBytes, token);
+            if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+            byte[] bytes = ReadBytes(path, Math.Min(ReaderLimits.ImageBytes, maximumBytes), token);
             RasterInfo info = RasterGuard.Inspect(bytes);
             string expected = type[6..];
             if (info.Format != expected) throw new EpubException("图片的实际格式与声明不一致。");
