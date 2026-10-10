@@ -44,6 +44,7 @@ public sealed class LibraryStore
     {
         lock (_gate)
         {
+            if (Catalog.LegacyHistoryMigrated) return;
             var entries = Catalog.Books.ToList(); var staged = new List<string>();
             try
             {
@@ -56,7 +57,9 @@ public sealed class LibraryStore
                     string generation = Stage(data.BookId, bytes, staged);
                     entries.Add(new LibraryEntry(data.BookId, generation, h.Title, h.Author, h.FilePath, [], "", "Reading", h.LastReadUtc, true));
                 }
-                if (staged.Count > 0) Commit(entries);
+                // Commit this flag with the index, including an empty first run.
+                // Old recent-state snapshots must not resurrect removed books.
+                Commit(entries, legacyHistoryMigrated: true);
             }
             catch { DeleteStaged(staged); throw; }
         }
@@ -294,11 +297,11 @@ public sealed class LibraryStore
         file.Write(bytes); file.Flush(true); return revision;
     }
 
-    private void Commit(List<LibraryEntry> entries)
+    private void Commit(List<LibraryEntry> entries, bool? legacyHistoryMigrated = null)
     {
         if (entries.Count > BookDataRules.MaxBooks) throw new InvalidDataException("书库最多保存 1000 本。");
         foreach (LibraryEntry e in entries) BookDataRules.ValidateEntry(e);
-        var next = new LibraryCatalog { Books = entries };
+        var next = new LibraryCatalog { Books = entries, LegacyHistoryMigrated = legacyHistoryMigrated ?? Catalog.LegacyHistoryMigrated };
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(next, BookDataRules.Json);
         if (bytes.Length > BookDataRules.MaxCatalogBytes) throw new InvalidDataException("书库索引超过 4 MiB。");
         Directory.CreateDirectory(_directory);

@@ -32,13 +32,18 @@ internal static class P1Tests
         });
         Test("Legacy bookmarks migrate to side files and survive opening the thirty-third book", () =>
         {
-            var s = Store(); string legacy = Id(6000);
+            string dir = Path.Combine(root, "legacy-" + Guid.NewGuid().ToString("N"));
+            var s = new LibraryStore(dir); string legacy = Id(6000);
             s.MigrateLegacy([new BookHistory { BookKey = legacy.ToLowerInvariant(), FilePath = "old.epub", Bookmarks = [new Bookmark { Label = "keep" }] }]);
             for (int i = 0; i < 40; i++) Open(s, i);
             BookData promoted = s.OpenBook(Id(101), legacy, "old.epub", "Title", "Author");
             Check.Equal(1, promoted.History.Bookmarks.Count); Check.Equal("keep", promoted.History.Bookmarks[0].Label);
             Check.False(s.Entries().Any(e => e.BookId == legacy));
             Check.Equal(1, s.LoadBook(Id(101)).History.Bookmarks.Count);
+            s.Remove(Id(101));
+            var reloaded = new LibraryStore(dir);
+            reloaded.MigrateLegacy([new BookHistory { BookKey = legacy, FilePath = "old.epub", Bookmarks = [new Bookmark { Label = "keep" }] }]);
+            Check.False(reloaded.Entries().Any(e => e.BookId == legacy || e.BookId == Id(101)));
         });
         Test("Legacy and content identities merge their bookmarks without discarding either record", () =>
         {

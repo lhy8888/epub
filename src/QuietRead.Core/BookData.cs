@@ -20,6 +20,7 @@ public sealed record LibraryEntry(string BookId, string DataRevision, string Tit
 public sealed class LibraryCatalog
 {
     public int Schema { get; set; } = 1;
+    public bool LegacyHistoryMigrated { get; set; }
     public List<LibraryEntry> Books { get; set; } = [];
 }
 public sealed record BackupBook(LibraryEntry Entry, BookData Data);
