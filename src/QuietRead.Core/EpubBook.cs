@@ -22,6 +22,7 @@ public sealed class EpubBook : IDisposable
 
     public string FilePath { get; }
     public string BookKey { get; private set; } = "";
+    public string LegacyBookKey { get; private set; } = "";
     public string Title { get; private set; } = "";
     public string Author { get; private set; } = "";
     public string Language { get; private set; } = "";
@@ -44,9 +45,23 @@ public sealed class EpubBook : IDisposable
             path = Path.GetFullPath(path);
             file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.RandomAccess);
             ZipGuard.Validate(file, token);
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            file.Position = 0;
+            byte[] buffer = new byte[64 * 1024];
+            int read; long hashed = 0;
+            while ((read = file.Read(buffer)) > 0)
+            {
+                token.ThrowIfCancellationRequested(); hashed += read;
+                if (hashed > ReaderLimits.ArchiveBytes) throw new EpubException("计算内容身份时文件超过大小限制。");
+                digest.AppendData(buffer, 0, read);
+            }
+            string contentId = Convert.ToHexString(digest.GetHashAndReset());
+            file.Position = 0;
             archive = new ZipArchive(file, ZipArchiveMode.Read, true, Encoding.UTF8);
             book = new EpubBook(path, file, archive);
             book.Initialize(token);
+            book.LegacyBookKey = book.BookKey.ToUpperInvariant();
+            book.BookKey = contentId;
             return book;
         }
         catch (Exception exception)
@@ -255,22 +270,25 @@ public sealed class EpubBook : IDisposable
         }
     }
 
-    public SearchOutcome Search(string query, CancellationToken token = default, IProgress<SearchProgress>? progress = null)
+    public SearchOutcome Search(string query, CancellationToken token = default, IProgress<SearchProgress>? progress = null, SearchOptions? options = null)
     {
         query = query.Trim();
         if (query.Length is 0 or > 128) throw new ArgumentException("搜索文字应为 1–128 个字符。", nameof(query));
+        options ??= new SearchOptions();
+        if (options.ChapterIndex is int requested && (requested < 0 || requested >= Chapters.Count)) throw new ArgumentOutOfRangeException(nameof(options));
         var hits = new List<SearchHit>();
         var scanned = new Dictionary<string, IReadOnlyList<BlockSearchHit>?>(StringComparer.Ordinal);
-        int total = Chapters.Select(c => c.Path).Distinct(StringComparer.Ordinal).Count();
+        int first = options.ChapterIndex ?? 0, end = options.ChapterIndex is int selected ? selected + 1 : Chapters.Count;
+        int total = Chapters.Skip(first).Take(end - first).Select(c => c.Path).Distinct(StringComparer.Ordinal).Count();
         progress?.Report(new SearchProgress(0, total));
         int failed = 0;
-        for (int chapterIndex = 0; chapterIndex < Chapters.Count; chapterIndex++)
+        for (int chapterIndex = first; chapterIndex < end; chapterIndex++)
         {
             token.ThrowIfCancellationRequested();
             string path = Chapters[chapterIndex].Path;
             if (!scanned.TryGetValue(path, out IReadOnlyList<BlockSearchHit>? matches))
             {
-                try { matches = ScanChapter(ReadChapter(chapterIndex, token, false), query, token); }
+                try { matches = ScanChapter(ReadChapter(chapterIndex, token, false), query, token, options); }
                 catch (EpubException) { matches = null; }
                 scanned.Add(path, matches);
                 progress?.Report(new SearchProgress(scanned.Count, total));
@@ -286,18 +304,16 @@ public sealed class EpubBook : IDisposable
         return new SearchOutcome(hits.AsReadOnly(), failed, false);
     }
 
-    private static IReadOnlyList<BlockSearchHit> ScanChapter(ParsedChapter chapter, string query, CancellationToken token)
+    private static IReadOnlyList<BlockSearchHit> ScanChapter(ParsedChapter chapter, string query, CancellationToken token, SearchOptions options)
     {
         var matches = new List<BlockSearchHit>();
         Span<char> buffer = stackalloc char[ChapterText.BufferCharacters];
         for (int index = 0; index < chapter.Blocks.Count; index++)
         {
             if ((index & 63) == 0) token.ThrowIfCancellationRequested();
-            ReadOnlySpan<char> text = ChapterText.CopyContext(chapter, index, buffer, query.Length - 1, out int prefix, out int length);
-            int searchStart = prefix;
-            int found = text[searchStart..].IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
-            if (found < 0 || found >= length) continue;
-            found += searchStart;
+            ReadOnlySpan<char> text = ChapterText.CopyContext(chapter, index, buffer, Math.Min(131, query.Length + 2), out int prefix, out int length);
+            int found = SearchText.Find(text, query, prefix, options);
+            if (found < 0 || found >= prefix + length) continue;
             int start = Math.Max(0, found - 28), count = Math.Min(100, text.Length - start);
             if (start > 0 && char.IsLowSurrogate(text[start])) { start--; count = Math.Min(100, text.Length - start); }
             if (count > 0 && char.IsHighSurrogate(text[start + count - 1])) count--;

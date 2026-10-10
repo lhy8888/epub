@@ -3,12 +3,12 @@ namespace QuietRead.Core;
 /// <summary>Bounded context across artificial splits, never across real paragraph boundaries.</summary>
 public static class ChapterText
 {
-    public const int BufferCharacters = ReaderLimits.BlockCharacters + 3 + 2 * 127;
+    public const int BufferCharacters = ReaderLimits.BlockCharacters + 3 + 2 * 131;
 
     public static ReadOnlySpan<char> CopyContext(ParsedChapter chapter, int index, Span<char> buffer,
         int contextCharacters, out int prefixLength, out int blockLength)
     {
-        if (contextCharacters is < 0 or > 127) throw new ArgumentOutOfRangeException(nameof(contextCharacters));
+        if (contextCharacters is < 0 or > 131) throw new ArgumentOutOfRangeException(nameof(contextCharacters));
         prefixLength = 0;
         int cursor = index;
         while (cursor > 0 && chapter.Blocks[cursor].ContinuesPrevious && prefixLength < contextCharacters)

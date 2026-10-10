@@ -229,6 +229,7 @@ internal static class Program
                     Task pending = window.NavigateAsync(3);
                     window.HomeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     await pending;
+                    await WaitUntil(() => window.WelcomePane.Visibility == Visibility.Visible);
                     await Idle(window);
                     Require(window.Reader.Document == null && window.TocList.Items.Count == 0, "Retired content was retained.");
                     Require(window.WelcomePane.Visibility == Visibility.Visible && window.StatusText.Text == "就绪", "A stale callback changed the home page.");
@@ -367,6 +368,7 @@ internal static class Program
                     });
                 }
                 finally { reading.Close(); }
+                await P1UiChecks.Run(temporary);
             }
             catch (Exception exception) { Record("WPF smoke harness", exception); }
             finally
@@ -383,7 +385,7 @@ internal static class Program
         return exitCode;
     }
 
-    private static async Task Check(string name, Func<Task> action)
+    internal static async Task Check(string name, Func<Task> action)
     {
         try { await action(); Record(name, null); }
         catch (Exception exception) { Record(name, exception); }
@@ -432,10 +434,10 @@ internal static class Program
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static void Require(bool condition, string message)
+    internal static void Require(bool condition, string message)
     { if (!condition) throw new InvalidOperationException(message); }
 
-    private static string Text(MainWindow window) => new TextRange(window.Reader.Document.ContentStart, window.Reader.Document.ContentEnd).Text;
+    internal static string Text(MainWindow window) => new TextRange(window.Reader.Document.ContentStart, window.Reader.Document.ContentEnd).Text;
 
     private static ITextProvider TextProvider(FlowDocumentScrollViewer viewer) =>
         UIElementAutomationPeer.CreatePeerForElement(viewer)?.GetPattern(PatternInterface.Text) as ITextProvider ??
@@ -454,18 +456,18 @@ internal static class Program
             $"visible: {string.Join(" | ", visible.Select(range => range.GetText(400)))}");
     }
 
-    private static async Task WaitUntil(Func<bool> completed)
+    internal static async Task WaitUntil(Func<bool> completed)
     {
         for (int i = 0; i < 100 && !completed(); i++) await Task.Delay(20);
         Require(completed(), "The reading operation did not settle.");
     }
 
-    private static async Task Idle(MainWindow window)
+    internal static async Task Idle(MainWindow window)
     {
         await window.Dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
     }
 
-    private static IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
+    internal static IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
     {
         if (parent is T match) yield return match;
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -505,7 +507,7 @@ internal static class Program
         Add("small.gif", Convert.FromHexString("47494638396101000100800000000000FFFFFF2C00000000010001000002024401003B"));
     }
 
-    private static void WriteFixture(string path, string[] bodies, Dictionary<string, byte[]>? images = null)
+    internal static void WriteFixture(string path, string[] bodies, Dictionary<string, byte[]>? images = null)
     {
         using var file = File.Create(path);
         using var zip = new ZipArchive(file, ZipArchiveMode.Create);

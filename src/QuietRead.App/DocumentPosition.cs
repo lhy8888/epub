@@ -6,6 +6,22 @@ namespace QuietRead;
 
 internal static class DocumentPosition
 {
+    public static (int Block, int Offset)? Read(IReadOnlyDictionary<int, Block> blocks, TextPointer pointer)
+    {
+        foreach ((int index, Block block) in blocks)
+        {
+            if (block is not Paragraph paragraph || pointer.CompareTo(block.ContentStart) < 0 || pointer.CompareTo(block.ContentEnd) > 0) continue;
+            int offset = 0;
+            foreach (Run run in paragraph.Inlines.OfType<Span>().SelectMany(s => s.Inlines.OfType<Run>()))
+            {
+                if (pointer.CompareTo(run.ContentStart) < 0) return (index, offset);
+                if (pointer.CompareTo(run.ContentEnd) <= 0) return (index, offset + run.ContentStart.GetOffsetToPosition(pointer));
+                offset += run.Text.Length;
+            }
+            return (index, offset);
+        }
+        return null;
+    }
     public static TextPointer? Pointer(Block block, int offset)
     {
         if (block is not Paragraph paragraph) return block.ContentStart;

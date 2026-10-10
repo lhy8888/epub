@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Xml.Linq;
+using System.Globalization;
 
 namespace QuietRead.Core;
 
@@ -13,6 +14,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
     private BlockKind _kind = BlockKind.Paragraph;
     private int _level, _characters, _inlineCount, _visits, _pendingCharacters;
     private bool _continuation;
+    private ParagraphLayout? _layout;
 
     public ParsedChapter Parse(XDocument document)
     {
@@ -36,7 +38,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         if ((++_visits & 127) == 0) token.ThrowIfCancellationRequested();
         if (node is XText text)
         {
-            Append(_kind == BlockKind.Code ? text.Value : Collapse(text.Value), style, link);
+            Append(_kind == BlockKind.Code || _layout?.PreserveWhitespace == true ? text.Value : Collapse(text.Value), style, link);
             return;
         }
         if (node is not XElement element) return;
@@ -69,6 +71,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
             "figcaption" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "dl" or "dt" or "dd";
         BlockKind oldKind = _kind;
         int oldLevel = _level;
+        ParagraphLayout? oldLayout = _layout;
         if (block)
         {
             Flush();
@@ -82,6 +85,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
                 _ => oldKind is BlockKind.Quote or BlockKind.ListItem ? oldKind : BlockKind.Paragraph
             };
             _level = _kind == BlockKind.Heading ? name[1] - '0' : Math.Min(6, element.Ancestors().Count(x => Name(x) == "li"));
+            _layout = ParseLayout(element, oldLayout);
         }
         Mark(element);
         style |= name switch
@@ -101,7 +105,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         }
         if (name is "td" or "th" && _pending.Count != 0) Append("  |  ", TextStyle.None, null);
         foreach (XNode child in element.Nodes()) Walk(child, style, link);
-        if (block) { Flush(); _kind = oldKind; _level = oldLevel; }
+        if (block) { Flush(); _kind = oldKind; _level = oldLevel; _layout = oldLayout; }
         if (note)
         {
             Flush();
@@ -173,7 +177,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
     private void Flush(bool continuation = false)
     {
         if (_pending.Count == 0) { if (!continuation) _continuation = false; return; }
-        if (_kind != BlockKind.Code)
+        if (_kind != BlockKind.Code && _layout?.PreserveWhitespace != true)
         {
             if (!_continuation) _pending[0] = _pending[0] with { Text = _pending[0].Text.TrimStart() };
             if (!continuation) _pending[^1] = _pending[^1] with { Text = _pending[^1].Text.TrimEnd() };
@@ -181,7 +185,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         if (_pending.Any(x => !string.IsNullOrWhiteSpace(x.Text)) || (continuation || _continuation) && _pendingCharacters > 0)
         {
             if (_kind == BlockKind.ListItem && !_continuation) _pending.Insert(0, new BookInline("•  "));
-            Add(new BookBlock(_kind, _pending.ToArray(), _level, ContinuesPrevious: _continuation));
+            Add(new BookBlock(_kind, _pending.ToArray(), _level, ContinuesPrevious: _continuation, Layout: _layout));
         }
         _pending.Clear(); _pendingCharacters = 0;
         _continuation = continuation;
@@ -194,6 +198,26 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
     }
 
     private static string Name(XElement element) => element.Name.LocalName.ToLowerInvariant();
+    private static ParagraphLayout? ParseLayout(XElement element, ParagraphLayout? inherited)
+    {
+        string? alignment = inherited?.Alignment;
+        double? indent = inherited?.IndentEm;
+        bool preserve = inherited?.PreserveWhitespace ?? false;
+        string? value = (string?)element.Attribute("style");
+        if (value?.Length <= 512)
+            foreach (string property in value.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int colon = property.IndexOf(':'); if (colon < 0) continue;
+                string name = property[..colon].Trim().ToLowerInvariant(), content = property[(colon + 1)..].Trim().ToLowerInvariant();
+                if (name == "text-align" && content is "left" or "center" or "right" or "justify") alignment = char.ToUpperInvariant(content[0]) + content[1..];
+                else if (name == "white-space" && content is "pre" or "pre-wrap") preserve = true;
+                else if (name == "white-space" && content == "normal") preserve = false;
+                else if (name == "text-indent" && content.EndsWith("em", StringComparison.Ordinal) &&
+                    double.TryParse(content.AsSpan(0, content.Length - 2), NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture, out double number) && double.IsFinite(number)) indent = Math.Clamp(number, 0, 4);
+            }
+        return alignment == null && indent == null && !preserve ? null : new ParagraphLayout(alignment, indent, preserve);
+    }
     private string Collapse(string value)
     {
         var result = new StringBuilder(Math.Min(value.Length, ReaderLimits.BlockCharacters));

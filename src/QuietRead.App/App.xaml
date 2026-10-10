@@ -11,6 +11,10 @@
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0E8" />
     <SolidColorBrush x:Key="HighlightBrush" Color="#F8E69F" />
     <SolidColorBrush x:Key="HighlightTextBrush" Color="#25352D" />
+    <SolidColorBrush x:Key="AnnotationYellowBrush" Color="#F8E69F" />
+    <SolidColorBrush x:Key="AnnotationGreenBrush" Color="#BFE6C8" />
+    <SolidColorBrush x:Key="AnnotationBlueBrush" Color="#C8DDF4" />
+    <SolidColorBrush x:Key="AnnotationRoseBrush" Color="#F1CDDC" />
     <SolidColorBrush x:Key="CodeBrush" Color="#EDF1EC" />
     <SolidColorBrush x:Key="PrimaryTextBrush" Color="#FFFFFF" />
     <Style TargetType="Button">

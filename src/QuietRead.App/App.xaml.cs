@@ -65,4 +65,10 @@ public partial class App : Application
         try { base.OnExit(e); }
         finally { _openRequests?.Dispose(); _stateSession?.Dispose(); }
     }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        if (MainWindow is QuietRead.MainWindow window && !window.TryFlushReadingData()) e.Cancel = true;
+        base.OnSessionEnding(e);
+    }
 }

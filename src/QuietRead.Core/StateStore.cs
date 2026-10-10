@@ -12,6 +12,19 @@ public sealed class ReaderPreferences
     public double LineSpacing { get; set; } = 1.8;
     public double TextWidth { get; set; } = 800;
     public bool SidebarVisible { get; set; } = true;
+    public double ParagraphSpacing { get; set; } = 0.8;
+    public double FirstLineIndent { get; set; } = -1;
+    public string Alignment { get; set; } = "Source";
+
+    public ReaderPreferences Copy() => (ReaderPreferences)MemberwiseClone();
+    public static void Validate(ReaderPreferences p)
+    {
+        if (p.Theme is not ("Paper" or "Sepia" or "Dark") || p.Font is not ("Serif" or "Sans" or "Georgia") ||
+            !double.IsFinite(p.FontSize) || p.FontSize is < 14 or > 36 || !double.IsFinite(p.LineSpacing) || p.LineSpacing is < 1.2 or > 2.4 ||
+            !double.IsFinite(p.TextWidth) || p.TextWidth is < 520 or > 1100 || !double.IsFinite(p.ParagraphSpacing) || p.ParagraphSpacing is < 0 or > 2 ||
+            !double.IsFinite(p.FirstLineIndent) || p.FirstLineIndent is < -1 or > 4 || p.Alignment is not ("Source" or "Left" or "Center" or "Right" or "Justify"))
+            throw new InvalidDataException("阅读外观设置不符合限制。");
+    }
 }
 
 public sealed class Bookmark
@@ -52,6 +65,9 @@ public sealed class AppState
         Preferences.FontSize = Clamp(Preferences.FontSize, 14, 36, 22);
         Preferences.LineSpacing = Clamp(Preferences.LineSpacing, 1.2, 2.4, 1.8);
         Preferences.TextWidth = Clamp(Preferences.TextWidth, 520, 1100, 800);
+        Preferences.ParagraphSpacing = Clamp(Preferences.ParagraphSpacing, 0, 2, 0.8);
+        Preferences.FirstLineIndent = Clamp(Preferences.FirstLineIndent, -1, 4, -1);
+        if (Preferences.Alignment is not ("Source" or "Left" or "Center" or "Right" or "Justify")) Preferences.Alignment = "Source";
         Books ??= [];
         Books = Books.Where(x => x != null && x.BookKey?.Length == 64 && x.BookKey.All(Uri.IsHexDigit) &&
             !string.IsNullOrEmpty(x.FilePath) && x.FilePath.Length <= 2048)

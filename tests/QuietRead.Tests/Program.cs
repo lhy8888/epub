@@ -777,6 +777,7 @@ Test("Oversized pipe messages are rejected before allocation and the listener re
     Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
 });
 
+P1Tests.Register(tests, root);
 var benchmarkResults = new List<object>();
 var compatibilityResults = new List<object>();
 try

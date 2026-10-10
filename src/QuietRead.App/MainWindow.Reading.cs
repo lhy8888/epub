@@ -74,7 +74,7 @@ public partial class MainWindow
                 var chapter = new ParsedChapter(preview.Blocks, new Dictionary<string, int>(), _chapter?.RightToLeft ?? false,
                     preview.Blocks.Sum(b => b.PlainText.Length));
                 FootnoteReader.Document = DocumentRenderer.Create(chapter, 0, chapter.Blocks.Count,
-                    new PreparedImages(new Dictionary<string, ImageSource>(), 0), _state.Preferences, "", _ => { }, out _);
+                    new PreparedImages(new Dictionary<string, ImageSource>(), 0), Preferences, "", _ => { }, out _);
                 FootnoteHint.Text = preview.Truncated ? "注释过长或含图片，点击「跳转到原文」查看。" : "关闭注释后继续正文阅读。";
                 FootnoteOverlay.Visibility = Visibility.Visible;
                 RefreshDocumentAutomation(FootnoteReader);

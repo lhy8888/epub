@@ -21,6 +21,7 @@
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="HomeButton" Content="最近" Click="Home_Click" ToolTip="返回最近阅读" />
+          <Button x:Name="LibraryButton" Content="书库" Click="Library_Click" AutomationProperties.Name="书库与阅读数据备份" />
           <Button Content="打开" Click="Open_Click" ToolTip="打开 EPUB" />
           <Button x:Name="BookmarkButton" Content="＋书签" Click="Bookmark_Click" IsEnabled="False" ToolTip="添加当前位置书签" />
           <Button x:Name="FullScreenButton" Content="全屏" Click="FullScreen_Click" ToolTip="切换全屏阅读" />
@@ -37,11 +38,18 @@
           <TextBlock x:Name="ChapterCountText" Text="书籍导航" Margin="20,22,20,14" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" />
           <TabControl x:Name="SidebarTabs" Grid.Row="1">
             <TabItem Header="目录">
-              <ListBox x:Name="TocList" SelectionChanged="Toc_SelectionChanged" AutomationProperties.Name="书籍目录">
+              <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+              <TextBox x:Name="TocFilter" TextChanged="TocFilter_Changed" MaxLength="100" Margin="12,8" AutomationProperties.Name="筛选目录标题" />
+              <ListBox x:Name="TocList" Grid.Row="1" SelectionChanged="Toc_SelectionChanged" AutomationProperties.Name="书籍目录">
                 <ListBox.ItemTemplate><DataTemplate>
-                  <TextBlock Text="{Binding Title}" Margin="{Binding Indent}" FontSize="14" TextWrapping="Wrap" />
+                  <Grid Margin="{Binding Indent}"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Button Content="{Binding Toggle}" Tag="{Binding Index}" Click="TocToggle_Click" Visibility="{Binding ToggleVisibility}" Padding="2,0" MinHeight="24" AutomationProperties.Name="展开或折叠子目录" />
+                    <TextBlock Grid.Column="1" Text="{Binding CurrentMark}" Foreground="{DynamicResource AccentBrush}" FontSize="10" VerticalAlignment="Center" Margin="2,0,4,0" />
+                    <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="14" TextWrapping="Wrap" />
+                  </Grid>
                 </DataTemplate></ListBox.ItemTemplate>
               </ListBox>
+              </Grid>
             </TabItem>
             <TabItem Header="书签">
               <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
@@ -64,7 +72,10 @@
                   <Button x:Name="SearchButton" Grid.Column="1" Content="查找" Click="Search_Click" Padding="8,6" IsEnabled="False" />
                   <Button x:Name="SearchCancelButton" Grid.Column="2" Content="停止" Click="CancelSearch_Click" Padding="6,6" IsEnabled="False" AutomationProperties.Name="停止全文搜索" />
                 </Grid>
-                <TextBlock x:Name="SearchStatusText" Grid.Row="1" Text="输入文字，点击「查找」搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+                <StackPanel Grid.Row="1">
+                  <WrapPanel Margin="4,8,0,0"><CheckBox x:Name="SearchChapter" Content="当前章" Margin="0,0,8,0" /><CheckBox x:Name="SearchCase" Content="区分大小写" Margin="0,0,8,0" /><CheckBox x:Name="SearchWholeWord" Content="整词" ToolTip="拉丁字母、数字和组合符为连续词；汉字按字边界匹配" /></WrapPanel>
+                  <TextBlock x:Name="SearchStatusText" Text="输入文字，点击「查找」搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
                 <ProgressBar x:Name="SearchProgressBar" Grid.Row="2" Minimum="0" Maximum="100" Height="4" Margin="4,0,4,8" Foreground="{DynamicResource AccentBrush}" AutomationProperties.Name="全文搜索进度" />
                 <StackPanel Grid.Row="3" Margin="0,0,0,8">
                   <StackPanel Orientation="Horizontal">
@@ -79,6 +90,20 @@
                     <StackPanel><TextBlock Text="{Binding ChapterTitle}" FontSize="11" Foreground="{DynamicResource AccentBrush}" />
                       <TextBlock Text="{Binding Snippet}" FontSize="13" TextWrapping="Wrap" Margin="0,5,0,0" /></StackPanel>
                   </DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+            </TabItem>
+            <TabItem Header="批注">
+              <Grid Margin="10,12"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <StackPanel><TextBlock Text="在正文选中文字，再点击高亮。" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" TextWrapping="Wrap" />
+                  <DockPanel Margin="0,8"><Button x:Name="AnnotationAddButton" Content="选区高亮" Click="AddAnnotation_Click" Padding="7,4" IsEnabled="False" />
+                    <ComboBox x:Name="AnnotationColorCombo" SelectedIndex="0" AutomationProperties.Name="批注颜色"><ComboBoxItem Content="黄色" Tag="Yellow" /><ComboBoxItem Content="绿色" Tag="Green" /><ComboBoxItem Content="蓝色" Tag="Blue" /><ComboBoxItem Content="粉色" Tag="Rose" /></ComboBox>
+                  </DockPanel>
+                </StackPanel>
+                <TextBox x:Name="AnnotationNoteBox" Grid.Row="1" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" Height="76" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="批注笔记" />
+                <WrapPanel Grid.Row="2" Margin="0,8"><Button x:Name="AnnotationSaveButton" Content="保存笔记" Click="SaveAnnotation_Click" Padding="6,4" IsEnabled="False" /><Button x:Name="AnnotationJumpButton" Content="定位" Click="JumpAnnotation_Click" Padding="6,4" IsEnabled="False" /><Button x:Name="AnnotationDeleteButton" Content="删除" Click="DeleteAnnotation_Click" Padding="6,4" IsEnabled="False" /></WrapPanel>
+                <ListBox x:Name="AnnotationsList" Grid.Row="3" SelectionChanged="Annotation_SelectionChanged" AutomationProperties.Name="高亮和笔记列表">
+                  <ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Range.Text}" TextWrapping="Wrap" FontSize="13" MaxHeight="90" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" MaxHeight="55" Margin="0,5,0,0" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
                 </ListBox>
               </Grid>
             </TabItem>
@@ -148,7 +173,10 @@
             <Button x:Name="BackButton" Content="↶" Click="Back_Click" IsEnabled="False" Padding="7,4" AutomationProperties.Name="返回上次跳转位置" ToolTip="返回上次跳转位置" />
             <Button x:Name="ForwardButton" Content="↷" Click="Forward_Click" IsEnabled="False" Padding="7,4" AutomationProperties.Name="前进到下一跳转位置" ToolTip="前进到下一跳转位置" />
           </StackPanel>
-          <TextBlock x:Name="StatusText" Grid.Column="1" Text="就绪" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" Margin="6,0,0,0" AutomationProperties.LiveSetting="Polite" />
+          <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
+            <TextBlock x:Name="StatusText" Text="就绪" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+            <DockPanel><Button x:Name="RetrySaveButton" Content="重试保存" Click="RetrySave_Click" Visibility="Collapsed" Padding="3,0" MinHeight="16" FontSize="10" /><TextBlock x:Name="SaveStatusText" Text="" FontSize="10" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" AutomationProperties.LiveSetting="Polite" /></DockPanel>
+          </StackPanel>
         </Grid>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="PreviousButton" Content="← 上一页" Click="Previous_Click" IsEnabled="False" FontSize="12" ToolTip="上一屏；到达段首后继续上一段或上一章" />
@@ -160,8 +188,10 @@
     </Border>
     <Popup x:Name="AppearancePopup" PlacementTarget="{Binding ElementName=AppearanceButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
       <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="22" Width="300" Margin="4,8">
-        <StackPanel>
+        <ScrollViewer MaxHeight="600" VerticalScrollBarVisibility="Auto"><StackPanel>
           <TextBlock Text="阅读外观" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,20" />
+          <CheckBox x:Name="BookAppearance" Content="本书独立外观（关闭后使用全局默认）" Checked="AppearanceScope_Changed" Unchecked="AppearanceScope_Changed" Margin="0,0,0,12" IsEnabled="False" />
+          <WrapPanel Margin="0,0,0,12"><Button Content="小说预设" Tag="Novel" Click="AppearancePreset_Click" Padding="6,4" /><Button Content="文档预设" Tag="Document" Click="AppearancePreset_Click" Padding="6,4" /><Button Content="本书恢复默认" Click="ResetBookAppearance_Click" Padding="6,4" /></WrapPanel>
           <TextBlock Text="背景" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" />
           <StackPanel Orientation="Horizontal" Margin="0,8,0,18">
             <Button Content="纸白" Tag="Paper" Click="Theme_Click" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
@@ -181,8 +211,12 @@
           <Slider x:Name="LineSlider" Minimum="1.2" Maximum="2.4" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="1.8" ValueChanged="Appearance_Changed" Margin="0,10,0,18" AutomationProperties.Name="正文行距" />
           <TextBlock Text="阅读宽度" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" />
           <Slider x:Name="WidthSlider" Minimum="520" Maximum="1100" TickFrequency="20" IsSnapToTickEnabled="True" Value="800" ValueChanged="Appearance_Changed" Margin="0,10,0,18" AutomationProperties.Name="阅读宽度" />
+          <TextBlock Text="段距" FontSize="12" Foreground="{DynamicResource SecondaryBrush}" /><Slider x:Name="ParagraphSpacingSlider" Minimum="0" Maximum="2" Value="0.8" TickFrequency="0.1" IsSnapToTickEnabled="True" ValueChanged="Appearance_Changed" Margin="0,8,0,14" AutomationProperties.Name="正文段距" />
+          <DockPanel><TextBlock Text="首行缩进" FontSize="12" /><TextBlock x:Name="IndentLabel" Text="遵循来源" FontSize="12" HorizontalAlignment="Right" /></DockPanel>
+          <Slider x:Name="IndentSlider" Minimum="-1" Maximum="4" Value="-1" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Appearance_Changed" Margin="0,8,0,14" AutomationProperties.Name="首行缩进，负一为遵循来源" />
+          <ComboBox x:Name="AlignmentCombo" SelectedIndex="0" SelectionChanged="Alignment_Changed" Margin="0,0,0,14" AutomationProperties.Name="正文对齐"><ComboBoxItem Content="遵循来源对齐" Tag="Source" /><ComboBoxItem Content="左对齐" Tag="Left" /><ComboBoxItem Content="居中" Tag="Center" /><ComboBoxItem Content="右对齐" Tag="Right" /><ComboBoxItem Content="两端对齐" Tag="Justify" /></ComboBox>
           <Button Content="使用说明" Click="Help_Click" FontSize="12" />
-        </StackPanel>
+        </StackPanel></ScrollViewer>
       </Border>
     </Popup>
   </Grid>

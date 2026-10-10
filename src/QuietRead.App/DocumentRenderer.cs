@@ -82,14 +82,15 @@ internal static class DocumentRenderer
     }
 
     public static FlowDocument Create(ParsedChapter chapter, int start, int end, PreparedImages images,
-        ReaderPreferences preferences, string highlight, Action<LocalLink> followLink, out Dictionary<int, Block> blocks)
+        ReaderPreferences preferences, string highlight, Action<LocalLink> followLink, out Dictionary<int, Block> blocks,
+        IReadOnlyList<AnnotationSpan>? annotations = null, SearchOptions? searchOptions = null)
     {
         var document = new FlowDocument
         {
             PagePadding = new Thickness(32, 20, 32, 44),
             ColumnWidth = double.PositiveInfinity,
             IsColumnWidthFlexible = true,
-            TextAlignment = TextAlignment.Left,
+            TextAlignment = chapter.RightToLeft ? TextAlignment.Right : TextAlignment.Left,
             FlowDirection = chapter.RightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
             FontFamily = Font(preferences.Font),
             FontSize = preferences.FontSize,
@@ -145,7 +146,8 @@ internal static class DocumentRenderer
             else
             {
                 var paragraph = new Paragraph();
-                IReadOnlyList<TextMatch> matches = FindMatches(chapter, i, textBuffer, highlight, ref highlightsLeft);
+                IReadOnlyList<TextMatch> matches = FindMatches(chapter, i, textBuffer, highlight, ref highlightsLeft, searchOptions);
+                AnnotationSpan[] notes = annotations?.Where(a => a.Block == i).ToArray() ?? [];
                 int offset = 0;
                 foreach (BookInline inline in block.Inlines)
                 {
@@ -165,7 +167,7 @@ internal static class DocumentRenderer
                     { span.FontFamily = new FontFamily("Consolas, Microsoft YaHei UI"); span.FontSize = preferences.FontSize * 0.88; }
                     if (inline.Style.HasFlag(TextStyle.Superscript)) span.BaselineAlignment = BaselineAlignment.Superscript;
                     if (inline.Style.HasFlag(TextStyle.Subscript)) span.BaselineAlignment = BaselineAlignment.Subscript;
-                    AddRuns(span, inline.Text, matches, offset);
+                    AddRuns(span, inline.Text, matches, offset, notes);
                     offset += inline.Text.Length;
                     paragraph.Inlines.Add(span);
                 }
@@ -180,17 +182,17 @@ internal static class DocumentRenderer
 
     private readonly record struct TextMatch(int Start, int End);
 
-    private static IReadOnlyList<TextMatch> FindMatches(ParsedChapter chapter, int index, Span<char> buffer, string query, ref int highlightsLeft)
+    private static IReadOnlyList<TextMatch> FindMatches(ParsedChapter chapter, int index, Span<char> buffer, string query, ref int highlightsLeft, SearchOptions? options)
     {
         if (string.IsNullOrEmpty(query) || highlightsLeft <= 0) return Array.Empty<TextMatch>();
-        ReadOnlySpan<char> content = ChapterText.CopyContext(chapter, index, buffer, query.Length - 1, out int prefix, out int length);
+        ReadOnlySpan<char> content = ChapterText.CopyContext(chapter, index, buffer, Math.Min(131, query.Length + 2), out int prefix, out int length);
         var matches = new List<TextMatch>();
         int start = 0;
         while (start < content.Length && matches.Count < 128 && highlightsLeft > 0)
         {
-            int found = content[start..].IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
+            int found = SearchText.Find(content, query, start, options);
             if (found < 0) break;
-            int at = start + found - prefix;
+            int at = found - prefix;
             if (at >= length) break;
             matches.Add(new TextMatch(at, at + query.Length));
             start = at + prefix + query.Length; highlightsLeft--;
@@ -198,22 +200,29 @@ internal static class DocumentRenderer
         return matches;
     }
 
-    private static void AddRuns(Span span, string text, IReadOnlyList<TextMatch> matches, int offset)
+    private static void AddRuns(Span span, string text, IReadOnlyList<TextMatch> matches, int offset, IReadOnlyList<AnnotationSpan> notes)
     {
-        if (matches.Count == 0) { span.Inlines.Add(new Run(text)); return; }
-        int position = 0;
+        if (matches.Count == 0 && notes.Count == 0) { span.Inlines.Add(new Run(text)); return; }
+        var boundaries = new SortedSet<int> { 0, text.Length };
         foreach (TextMatch match in matches)
         {
-            if (match.Start >= offset + text.Length) break;
-            if (match.End <= offset) continue;
-            int start = Math.Max(0, match.Start - offset), end = Math.Min(text.Length, match.End - offset);
-            if (start > position) span.Inlines.Add(new Run(text[position..start]));
-            var run = new Run(text.Substring(start, end - start));
-            run.SetResourceReference(TextElement.BackgroundProperty, "HighlightBrush");
-            run.SetResourceReference(TextElement.ForegroundProperty, "HighlightTextBrush");
+            boundaries.Add(Math.Clamp(match.Start - offset, 0, text.Length)); boundaries.Add(Math.Clamp(match.End - offset, 0, text.Length));
+        }
+        foreach (AnnotationSpan note in notes)
+        { boundaries.Add(Math.Clamp(note.Start - offset, 0, text.Length)); boundaries.Add(Math.Clamp(note.End - offset, 0, text.Length)); }
+        int position = 0;
+        foreach (int end in boundaries.Skip(1))
+        {
+            var run = new Run(text[position..end]); int at = position + offset;
+            bool search = matches.Any(m => m.Start <= at && m.End > at);
+            AnnotationSpan? note = notes.LastOrDefault(a => a.Start <= at && a.End > at);
+            if (search || note != null)
+            {
+                run.SetResourceReference(TextElement.BackgroundProperty, search ? "HighlightBrush" : "Annotation" + note!.Color + "Brush");
+                if (search || SystemParameters.HighContrast) run.SetResourceReference(TextElement.ForegroundProperty, "HighlightTextBrush");
+            }
             span.Inlines.Add(run); position = end;
         }
-        if (position < text.Length) span.Inlines.Add(new Run(text[position..]));
     }
 
     public static FontFamily Font(string choice) => new(choice switch
@@ -228,7 +237,13 @@ internal static class DocumentRenderer
         double size = preferences.FontSize;
         paragraph.FontSize = block.Kind == BlockKind.Heading ? size * (block.Level <= 1 ? 1.55 : block.Level == 2 ? 1.30 : 1.1) : size;
         paragraph.LineHeight = paragraph.FontSize * (block.Kind == BlockKind.Heading ? 1.4 : preferences.LineSpacing);
-        paragraph.Margin = block.Kind == BlockKind.Heading ? new Thickness(0, size, 0, size * 0.8) : new Thickness(0, 0, 0, size * 0.8);
+        paragraph.Margin = block.Kind == BlockKind.Heading ? new Thickness(0, size, 0, size * 0.8) : new Thickness(0, 0, 0, size * preferences.ParagraphSpacing);
+        string? alignment = preferences.Alignment == "Source" ? block.Layout?.Alignment : preferences.Alignment;
+        if (alignment == null && block.Kind != BlockKind.Code) paragraph.ClearValue(Block.TextAlignmentProperty);
+        else paragraph.TextAlignment = block.Kind == BlockKind.Code ? TextAlignment.Left : alignment switch
+        { "Center" => TextAlignment.Center, "Right" => TextAlignment.Right, "Justify" => TextAlignment.Justify, _ => TextAlignment.Left };
+        paragraph.TextIndent = block.Kind == BlockKind.Paragraph && !block.ContinuesPrevious && block.Layout?.PreserveWhitespace != true ?
+            size * (preferences.FirstLineIndent < 0 ? block.Layout?.IndentEm ?? 0 : preferences.FirstLineIndent) : 0;
         if (block.Kind == BlockKind.Heading) paragraph.FontWeight = FontWeights.SemiBold;
         if (block.Kind == BlockKind.Quote)
         {
