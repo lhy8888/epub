@@ -259,7 +259,7 @@ internal static class Program
                 {
                     string fixture = Path.Combine(temporary, "p0-reading.epub");
                     WriteFixture(fixture, [string.Concat(Enumerable.Range(0, 140).Select(i =>
-                        $"<p>第{i:000}段 Unique passage {i:000} " + string.Concat(Enumerable.Repeat($"reading-{i:000} words 你好世界。", 14)) + "</p>")),
+                        $"<p>第{i:000}段 Unique passage {i:000} " + string.Concat(Enumerable.Range(0, 14).Select(j => $"reading-{i:000}-{j:00} words 你好世界。")) + "</p>")),
                         "<p>正文<a href='c2.xhtml#note' role='doc-noteref'>脚注1</a></p><p>正文继续。</p>",
                         "<aside id='note' role='doc-footnote'><p>注释内容，含<strong>粗体</strong>和<a href='c1.xhtml'>返回</a>。</p></aside><p>注释之外的段落。</p>"]);
                     await reading.OpenBookAsync(fixture); await Idle(reading);
@@ -432,8 +432,13 @@ internal static class Program
 
     private static void RequireVisible(FlowDocumentScrollViewer viewer, string text)
     {
-        ITextRangeProvider? range = TextProvider(viewer).DocumentRange.FindText(text, false, false);
-        Require(range != null && range.GetBoundingRectangles().Length >= 4, "The saved text is outside the visible reading viewport.");
+        ITextRangeProvider[] visible = TextProvider(viewer).GetVisibleRanges();
+        if (visible.Any(range => range.FindText(text, false, false)?.GetBoundingRectangles().Length >= 4)) return;
+        ScrollViewer scroll = Visuals<ScrollViewer>(viewer).First();
+        ReadingLocator? current = (Window.GetWindow(viewer) as MainWindow)?.CaptureReadingLocator();
+        throw new InvalidOperationException($"The saved text is outside the visible reading viewport. Quote: {text}; " +
+            $"current: {current}; scroll: {scroll.VerticalOffset}/{scroll.ScrollableHeight}; " +
+            $"visible: {string.Join(" | ", visible.Select(range => range.GetText(400)))}");
     }
 
     private static async Task WaitUntil(Func<bool> completed)
