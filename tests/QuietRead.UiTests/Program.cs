@@ -393,6 +393,15 @@ internal static class Program
             managedBytes = GC.GetTotalMemory(false)
         });
         Console.WriteLine($"{(exception == null ? "PASS" : "FAIL")} {name}{(exception == null ? "" : ": " + exception.Message)}");
+        if (exception != null && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+            Console.WriteLine($"::error title={Annotation(name, property: true)}::{Annotation(exception.ToString())}");
+    }
+
+    private static string Annotation(string value, bool property = false)
+    {
+        string escaped = value.Replace("%", "%25", StringComparison.Ordinal)
+            .Replace("\r", "%0D", StringComparison.Ordinal).Replace("\n", "%0A", StringComparison.Ordinal);
+        return property ? escaped.Replace(":", "%3A", StringComparison.Ordinal).Replace(",", "%2C", StringComparison.Ordinal) : escaped;
     }
 
     private static void WriteReport(string path)
