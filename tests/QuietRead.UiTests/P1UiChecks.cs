@@ -43,6 +43,15 @@ internal static class P1UiChecks
                 await WaitUntil(() => window.Reader.IsEnabled); await Idle(window);
                 Require(((BookAnnotation)window.AnnotationsList.Items[0]).Note == "edited note 中文", "Note edit did not apply.");
                 Require(((BookAnnotation)window.AnnotationsList.Items[0]).Color == "Blue", "Color edit did not apply.");
+                Run highlighted = window.Reader.Document.Blocks.OfType<Paragraph>().SelectMany(Runs).First(r => r.Background != null);
+                object foreground = Application.Current.Resources["HighlightTextBrush"];
+                var changedBrush = new SolidColorBrush(Colors.Magenta);
+                try
+                {
+                    Application.Current.Resources["HighlightTextBrush"] = changedBrush;
+                    Require(ReferenceEquals(highlighted.Foreground, changedBrush), "Existing annotation text does not follow theme/high-contrast resources.");
+                }
+                finally { Application.Current.Resources["HighlightTextBrush"] = foreground; }
                 Require(await window.SaveReadingDataAsync(), "Annotation save failed.");
                 Require(window.Library.LoadBook(id).Annotations[0].Range.Text == "alpha bold", "Saved range changed.");
             });

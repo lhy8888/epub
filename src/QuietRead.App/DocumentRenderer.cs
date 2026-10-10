@@ -219,7 +219,7 @@ internal static class DocumentRenderer
             if (search || note != null)
             {
                 run.SetResourceReference(TextElement.BackgroundProperty, search ? "HighlightBrush" : "Annotation" + note!.Color + "Brush");
-                if (search || SystemParameters.HighContrast) run.SetResourceReference(TextElement.ForegroundProperty, "HighlightTextBrush");
+                run.SetResourceReference(TextElement.ForegroundProperty, "HighlightTextBrush");
             }
             span.Inlines.Add(run); position = end;
         }
