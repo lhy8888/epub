@@ -13,7 +13,7 @@ public partial class MainWindow
 {
     private bool _dirty, _settingAppearance, _selectingAnnotations;
     private long _editRevision;
-    private readonly SemaphoreSlim _saveWork = new(1, 1);
+    private Task<bool>? _saveTask;
     private SearchOptions _highlightOptions = new();
     private TocNavigator? _toc;
     private readonly HashSet<int> _tocCollapsed = [];
@@ -22,7 +22,18 @@ public partial class MainWindow
 
     internal async Task<bool> SaveReadingDataAsync(bool force = false)
     {
+        // Wait before snapshotting: slow storage must not accumulate book-sized
+        // snapshots for every timer tick or retry click. The next save captures
+        // the newest edits after the pending generation has finished.
+        while (_saveTask is { IsCompleted: false } pending)
+            if (!await pending && !force) return false;
         if (_closed || !_dirty && !force) return true;
+        _saveTask = SaveSnapshotAsync();
+        return await _saveTask;
+    }
+
+    private async Task<bool> SaveSnapshotAsync()
+    {
         CapturePosition();
         long edit = _editRevision, revision = ++_saveRevision;
         long libraryVersion = _libraryVersion;
@@ -30,9 +41,7 @@ public partial class MainWindow
         {
             byte[] state = StateStore.Snapshot(_state);
             byte[]? book = _bookData == null ? null : BookDataRules.Snapshot(_bookData);
-            await _saveWork.WaitAsync();
-            try { await Task.Run(() => { if (book != null) _library.SaveBook(book, revision, libraryVersion); _store.Save(state, revision); }); }
-            finally { _saveWork.Release(); }
+            await Task.Run(() => { if (book != null) _library.SaveBook(book, revision, libraryVersion); _store.Save(state, revision); });
             if (!_closed && edit == _editRevision)
             { _dirty = false; SaveStatusText.Text = "已保存"; RetrySaveButton.Visibility = Visibility.Collapsed; }
             return true;

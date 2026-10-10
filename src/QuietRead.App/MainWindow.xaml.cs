@@ -253,6 +253,7 @@ public partial class MainWindow : Window
                 Reader.Focus();
             }, DispatcherPriority.Loaded, token);
             if (_closed || token.IsCancellationRequested || generation != _readGeneration || book != _book) return;
+            ScheduleSave();
             if (addHistory) PushHistory(origin);
             UpdateButtons(); Announce(ChapterTitleText);
             StatusText.Text = slice.images.Skipped > 0 ? $"本段有 {slice.images.Skipped} 张图片未显示。" :
@@ -615,6 +616,9 @@ public partial class MainWindow : Window
 
     internal async Task ClearRecentAsync()
     {
+        try { await _libraryReady; }
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
+        { ShowSaveFailure(); return; }
         _state.Books.Clear(); RefreshRecent(); _saveTimer.Stop();
         ScheduleSave();
         if (await SaveReadingDataAsync() && !_closed) StatusText.Text = "阅读记录已清除。";
@@ -682,7 +686,9 @@ public partial class MainWindow : Window
         CloseFootnote(); _resizeTimer.Stop(); SystemParameters.StaticPropertyChanged -= SystemSettingsChanged;
         _lifetime.Cancel(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         EpubBook? book = _book; _book = null; _chapter = null; _history = null; _scroll = null;
+        _bookData = null; _toc = null;
         Reader.Document = null; _renderedBlocks.Clear();
+        AnnotationsList.ItemsSource = null;
         TocList.ItemsSource = null; SearchList.ItemsSource = null; BookmarksList.ItemsSource = null; RecentList.ItemsSource = null;
         _lifetime.Dispose();
         if (book != null) _ = Task.Run(book.Dispose);

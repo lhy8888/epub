@@ -19,7 +19,7 @@ internal static class P1UiChecks
         string directory = Path.Combine(temporary, "p1"), file = Path.Combine(temporary, "p1.epub");
         string filler = string.Concat(Enumerable.Range(0, 50).Select(i => $"<p>Filler paragraph {i:00} for directory scrolling.</p>"));
         WriteFixture(file, ["<h1 id='first'>First section</h1><p>alpha <strong>bold</strong> é 😀 👩‍💻 tail</p>" + filler + "<h2 id='second'>Second section</h2><p>second passage</p>" + filler,
-            "<p>needle NEEDLE needles needle_x 中文测试。</p><p style='text-align:center;text-indent:2em'>source alignment</p><pre>  first\n    second</pre><blockquote>quoted passage</blockquote>",
+            "<p>needle needles needle_x 中文测试。</p><p>NEEDLE</p><p style='text-align:center;text-indent:2em'>source alignment</p><pre>  first\n    second</pre><blockquote>quoted passage</blockquote>",
             "<p>needle final chapter</p>"]);
         AddNavigation(file);
         byte[] original = SHA256.HashData(File.ReadAllBytes(file));
@@ -127,6 +127,9 @@ internal static class P1UiChecks
                 finally { library.Close(); }
                 await window.ClearRecentAsync(); Require(window.RecentList.Items.Count == 0, "Recent list did not clear.");
                 Require(window.Library.LoadBook(id).Annotations.Count == 1 && window.Library.Entries().Count == 2, "Clearing recents deleted long-term data.");
+                Require((await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => window.SaveReadingDataAsync()))).All(saved => saved), "Concurrent save requests did not settle.");
+                await window.NavigateAsync(2); Require(window.TryFlushReadingData(), "Clean-to-dirty navigation did not flush.");
+                Require(window.Library.LoadBook(id).History.ChapterIndex == 2, "Final flush omitted navigation after a completed save.");
             });
             await Check("P1 backup exports and repeated imports preserve notes, metadata and source bytes", () =>
             {
@@ -149,6 +152,7 @@ internal static class P1UiChecks
                 try
                 {
                     window.FontSizeSlider.Value = 26;
+                    window.BookmarkButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Require(!await window.SaveReadingDataAsync(), "Blocked save was reported successful.");
                     Require(window.RetrySaveButton.Visibility == Visibility.Visible && window.SaveStatusText.Text.Contains("保存失败", StringComparison.Ordinal), "Save failure is hidden.");
                     Require(index.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "library.json"))), "Failed save altered committed data.");
