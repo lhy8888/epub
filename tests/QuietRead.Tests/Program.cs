@@ -757,13 +757,17 @@ Test("Single-instance channel forwards an EPUB from another process and rejects 
 Test("Oversized pipe messages are rejected before allocation and the listener recovers", () =>
 {
     string directory = Path.Combine(root, "bad-channel");
-    using var channel = new OpenRequestChannel(directory, _ => { });
+    int received = 0;
+    using var channel = new OpenRequestChannel(directory, _ => Interlocked.Increment(ref received));
     using (var pipe = new NamedPipeClientStream(".", OpenRequestChannel.PipeName(directory), PipeDirection.InOut,
         PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
     {
         pipe.Connect(1000); byte[] header = new byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(header, int.MaxValue); pipe.Write(header); pipe.Flush();
-        Check.Equal(-1, pipe.ReadByte());
+        bool rejected;
+        try { rejected = pipe.ReadByte() == -1; }
+        catch (IOException) { rejected = true; } // Unix sockets may reset rather than return EOF.
+        Check.True(rejected); Check.Equal(0, Volatile.Read(ref received));
     }
     Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
     foreach (string message in new[] { "{not-json}", "{\"Version\":99}", "{\"Version\":1,\"Path\":\"relative.epub\"}" })
@@ -772,7 +776,11 @@ Test("Oversized pipe messages are rejected before allocation and the listener re
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         pipe.Connect(1000); byte[] bytes = Encoding.UTF8.GetBytes(message), header = new byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(header, bytes.Length); pipe.Write(header); pipe.Write(bytes); pipe.Flush();
-        Check.True(pipe.ReadByte() is -1 or 0, "Invalid pipe request was accepted.");
+        bool rejected;
+        try { rejected = pipe.ReadByte() is -1 or 0; }
+        catch (IOException) { rejected = true; }
+        Check.True(rejected, "Invalid pipe request was accepted.");
+        Check.Equal(1, Volatile.Read(ref received));
     }
     Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
 });
@@ -787,7 +795,11 @@ try
         var timer = Stopwatch.StartNew();
         try { run(); passed++; outcomes.Add(new { name, passed = true, milliseconds = timer.Elapsed.TotalMilliseconds }); Console.WriteLine("PASS " + name); }
         catch (Exception exception)
-        { failed++; outcomes.Add(new { name, passed = false, error = exception.ToString(), milliseconds = timer.Elapsed.TotalMilliseconds }); Console.WriteLine("FAIL " + name + ": " + exception.Message); }
+        {
+            failed++; outcomes.Add(new { name, passed = false, error = exception.ToString(), milliseconds = timer.Elapsed.TotalMilliseconds }); Console.WriteLine("FAIL " + name + ": " + exception.Message);
+            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+                Console.WriteLine("::error title=Core regression::" + (name + "\n" + exception).Replace("%", "%25", StringComparison.Ordinal).Replace("\r", "%0D", StringComparison.Ordinal).Replace("\n", "%0A", StringComparison.Ordinal));
+        }
     }
     for (int argument = 0; argument < args.Length - 1; argument++)
     {
