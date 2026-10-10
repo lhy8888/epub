@@ -237,7 +237,8 @@ public sealed class EpubBook : IDisposable
         }
     }
 
-    public RasterData ReadImage(string path, CancellationToken token = default, int maximumBytes = ReaderLimits.ImageBytes)
+    public RasterData ReadImage(string path, CancellationToken token = default, int maximumBytes = ReaderLimits.ImageBytes,
+        ResourceReadBudget? budget = null)
     {
         lock (_gate)
         {
@@ -246,7 +247,7 @@ public sealed class EpubBook : IDisposable
             if (!_mediaTypes.TryGetValue(path, out string? type) || type is not ("image/png" or "image/jpeg" or "image/gif" or "image/bmp"))
                 throw new EpubException("此图片格式暂不支持，或图片不在书籍资源清单中。");
             if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
-            byte[] bytes = ReadBytes(path, Math.Min(ReaderLimits.ImageBytes, maximumBytes), token);
+            byte[] bytes = ReadBytes(path, Math.Min(ReaderLimits.ImageBytes, maximumBytes), token, budget);
             RasterInfo info = RasterGuard.Inspect(bytes);
             string expected = type[6..];
             if (info.Format != expected) throw new EpubException("图片的实际格式与声明不一致。");
@@ -259,47 +260,63 @@ public sealed class EpubBook : IDisposable
         query = query.Trim();
         if (query.Length is 0 or > 128) throw new ArgumentException("搜索文字应为 1–128 个字符。", nameof(query));
         var hits = new List<SearchHit>();
-        Span<char> buffer = stackalloc char[ReaderLimits.BlockCharacters + 3]; // list bullet prefix
+        var scanned = new Dictionary<string, IReadOnlyList<BlockSearchHit>?>(StringComparer.Ordinal);
         int failed = 0;
         for (int chapterIndex = 0; chapterIndex < Chapters.Count; chapterIndex++)
         {
             token.ThrowIfCancellationRequested();
-            ParsedChapter chapter;
-            try { chapter = ReadChapter(chapterIndex, token, false); }
-            catch (EpubException) { failed++; continue; }
-            for (int blockIndex = 0; blockIndex < chapter.Blocks.Count; blockIndex++)
+            string path = Chapters[chapterIndex].Path;
+            if (!scanned.TryGetValue(path, out IReadOnlyList<BlockSearchHit>? matches))
             {
-                if ((blockIndex & 63) == 0) token.ThrowIfCancellationRequested();
-                int length = 0;
-                IReadOnlyList<BookInline> inlines = chapter.Blocks[blockIndex].Inlines;
-                for (int inlineIndex = 0; inlineIndex < inlines.Count; inlineIndex++)
-                {
-                    BookInline inline = inlines[inlineIndex];
-                    inline.Text.AsSpan().CopyTo(buffer[length..]);
-                    length += inline.Text.Length;
-                }
-                ReadOnlySpan<char> text = buffer[..length];
-                int found = text.IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
-                if (found < 0) continue;
-                int start = Math.Max(0, found - 28), count = Math.Min(100, text.Length - start);
-                if (start > 0 && char.IsLowSurrogate(text[start])) { start--; count = Math.Min(100, text.Length - start); }
-                if (count > 0 && char.IsHighSurrogate(text[start + count - 1])) count--;
-                string snippet = (start > 0 ? "…" : "") + new string(text.Slice(start, count)).Replace('\n', ' ') + (start + count < text.Length ? "…" : "");
-                hits.Add(new SearchHit(chapterIndex, blockIndex, Chapters[chapterIndex].Title, snippet));
+                try { matches = ScanChapter(ReadChapter(chapterIndex, token, false), query, token); }
+                catch (EpubException) { matches = null; }
+                scanned.Add(path, matches);
+            }
+            if (matches == null) { failed++; continue; }
+            foreach (BlockSearchHit match in matches)
+            {
+                token.ThrowIfCancellationRequested();
+                hits.Add(new SearchHit(chapterIndex, match.BlockIndex, Chapters[chapterIndex].Title, match.Snippet));
                 if (hits.Count >= ReaderLimits.SearchResults) return new SearchOutcome(hits.AsReadOnly(), failed, true);
             }
         }
         return new SearchOutcome(hits.AsReadOnly(), failed, false);
     }
 
+    private static IReadOnlyList<BlockSearchHit> ScanChapter(ParsedChapter chapter, string query, CancellationToken token)
+    {
+        var matches = new List<BlockSearchHit>();
+        Span<char> buffer = stackalloc char[ChapterText.BufferCharacters];
+        for (int index = 0; index < chapter.Blocks.Count; index++)
+        {
+            if ((index & 63) == 0) token.ThrowIfCancellationRequested();
+            ReadOnlySpan<char> text = ChapterText.CopyContext(chapter, index, buffer, query.Length - 1, out int prefix, out int length);
+            int searchStart = prefix;
+            int found = text[searchStart..].IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
+            if (found < 0 || found >= length) continue;
+            found += searchStart;
+            int start = Math.Max(0, found - 28), count = Math.Min(100, text.Length - start);
+            if (start > 0 && char.IsLowSurrogate(text[start])) { start--; count = Math.Min(100, text.Length - start); }
+            if (count > 0 && char.IsHighSurrogate(text[start + count - 1])) count--;
+            string snippet = (start > 0 ? "…" : "") + new string(text.Slice(start, count)).Replace('\n', ' ') +
+                (start + count < text.Length ? "…" : "");
+            matches.Add(new BlockSearchHit(index, snippet));
+            if (matches.Count >= ReaderLimits.SearchResults) break;
+        }
+        return matches;
+    }
+
+    private sealed record BlockSearchHit(int BlockIndex, string Snippet);
+
     private XDocument ReadXml(string path, CancellationToken token) => SafeXml.Parse(ReadBytes(path, ReaderLimits.XmlBytes, token), token);
 
-    private byte[] ReadBytes(string path, int limit, CancellationToken token)
+    private byte[] ReadBytes(string path, int limit, CancellationToken token, ResourceReadBudget? budget = null)
     {
         token.ThrowIfCancellationRequested();
         if (!_entries.TryGetValue(path, out ZipArchiveEntry? entry)) throw new EpubException("书籍缺少资源：" + Clip(path, 120, "未知"));
         if (entry.Length > limit || entry.CompressedLength > Math.Max(4096L, limit + 64L * 1024))
             throw new EpubException("书籍资源超过允许的大小限制。");
+        budget?.Reserve((int)entry.Length);
         try
         {
             using Stream content = entry.Open();

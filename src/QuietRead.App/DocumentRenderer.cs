@@ -32,7 +32,7 @@ internal static class DocumentRenderer
         var considered = new HashSet<string>(StringComparer.Ordinal);
         int skipped = 0, count = 0;
         long decodedPixels = 0;
-        int sourceBytes = 0;
+        var inputBudget = new ResourceReadBudget(32 * 1024 * 1024);
         for (int i = start; i < end; i++)
         {
             token.ThrowIfCancellationRequested();
@@ -40,13 +40,10 @@ internal static class DocumentRenderer
             if (block.Kind != BlockKind.Image) continue;
             if (block.ImagePath == null) { skipped++; continue; }
             if (!considered.Add(block.ImagePath)) continue;
-            if (++count > 24 || sourceBytes >= 32 * 1024 * 1024) { skipped++; continue; }
+            if (++count > 24 || inputBudget.RemainingBytes == 0) { skipped++; continue; }
             try
             {
-                int remaining = 32 * 1024 * 1024 - sourceBytes;
-                RasterData data = book.ReadImage(block.ImagePath, token, remaining);
-                sourceBytes += data.Bytes.Length;
-                if (sourceBytes > 32 * 1024 * 1024) { skipped++; continue; }
+                RasterData data = book.ReadImage(block.ImagePath, token, budget: inputBudget);
                 int width = Math.Min(1200, data.Info.Width);
                 int height = (int)Math.Ceiling((double)data.Info.Height * width / data.Info.Width);
                 long pixels = (long)width * height;
@@ -102,7 +99,7 @@ internal static class DocumentRenderer
         document.SetResourceReference(FlowDocument.BackgroundProperty, "ReaderBrush");
         blocks = [];
         int highlightsLeft = 1000;
-        Span<char> textBuffer = stackalloc char[ReaderLimits.BlockCharacters + 3];
+        Span<char> textBuffer = stackalloc char[ChapterText.BufferCharacters];
         for (int i = start; i < end; i++)
         {
             BookBlock block = chapter.Blocks[i];
@@ -148,7 +145,7 @@ internal static class DocumentRenderer
             else
             {
                 var paragraph = new Paragraph();
-                IReadOnlyList<TextMatch> matches = FindMatches(block, textBuffer, highlight, ref highlightsLeft);
+                IReadOnlyList<TextMatch> matches = FindMatches(chapter, i, textBuffer, highlight, ref highlightsLeft);
                 int offset = 0;
                 foreach (BookInline inline in block.Inlines)
                 {
@@ -181,25 +178,20 @@ internal static class DocumentRenderer
 
     private readonly record struct TextMatch(int Start, int End);
 
-    private static IReadOnlyList<TextMatch> FindMatches(BookBlock block, Span<char> buffer, string query, ref int highlightsLeft)
+    private static IReadOnlyList<TextMatch> FindMatches(ParsedChapter chapter, int index, Span<char> buffer, string query, ref int highlightsLeft)
     {
         if (string.IsNullOrEmpty(query) || highlightsLeft <= 0) return Array.Empty<TextMatch>();
-        int length = 0;
-        for (int i = 0; i < block.Inlines.Count; i++)
-        {
-            string text = block.Inlines[i].Text;
-            text.AsSpan().CopyTo(buffer[length..]); length += text.Length;
-        }
+        ReadOnlySpan<char> content = ChapterText.CopyContext(chapter, index, buffer, query.Length - 1, out int prefix, out int length);
         var matches = new List<TextMatch>();
-        ReadOnlySpan<char> content = buffer[..length];
         int start = 0;
-        while (start < length && matches.Count < 128 && highlightsLeft > 0)
+        while (start < content.Length && matches.Count < 128 && highlightsLeft > 0)
         {
             int found = content[start..].IndexOf(query.AsSpan(), StringComparison.OrdinalIgnoreCase);
             if (found < 0) break;
-            int at = start + found;
+            int at = start + found - prefix;
+            if (at >= length) break;
             matches.Add(new TextMatch(at, at + query.Length));
-            start = at + query.Length; highlightsLeft--;
+            start = at + prefix + query.Length; highlightsLeft--;
         }
         return matches;
     }

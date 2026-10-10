@@ -92,6 +92,16 @@ public sealed class StateStore
         _path = Path.Combine(directory, "state.json");
     }
 
+    // Hold for the application lifetime, before loading any mutable state.
+    // Keep the lock file: deleting it would allow another process to lock a different inode.
+    public IDisposable AcquireSession()
+    {
+        string directory = Path.GetDirectoryName(_path)!;
+        Directory.CreateDirectory(directory);
+        return new FileStream(Path.Combine(directory, "state.lock"), FileMode.OpenOrCreate,
+            FileAccess.ReadWrite, FileShare.None);
+    }
+
     public AppState Load()
     {
         try

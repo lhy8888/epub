@@ -11,6 +11,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
     private readonly List<BookInline> _pending = [];
     private BlockKind _kind = BlockKind.Paragraph;
     private int _level, _characters, _inlineCount, _visits, _pendingCharacters;
+    private bool _continuation;
 
     public ParsedChapter Parse(XDocument document)
     {
@@ -123,10 +124,10 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         int at = 0;
         while (at < text.Length)
         {
-            if (_pendingCharacters >= ReaderLimits.BlockCharacters || _pending.Count >= ReaderLimits.BlockInlines) Flush();
+            if (_pendingCharacters >= ReaderLimits.BlockCharacters || _pending.Count >= ReaderLimits.BlockInlines) Flush(continuation: true);
             int length = Math.Min(text.Length - at, ReaderLimits.BlockCharacters - _pendingCharacters);
             if (at + length < text.Length && length > 0 && char.IsHighSurrogate(text[at + length - 1])) length--;
-            if (length == 0) { Flush(); continue; }
+            if (length == 0) { Flush(continuation: true); continue; }
             string part = text.Substring(at, length);
             if (_pending.Count > 0 && _pending[^1].Style == style && _pending[^1].Link == link && _pending[^1].Text.Length + length < 1024)
                 _pending[^1] = _pending[^1] with { Text = _pending[^1].Text + part };
@@ -135,20 +136,21 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         }
     }
 
-    private void Flush()
+    private void Flush(bool continuation = false)
     {
-        if (_pending.Count == 0) return;
+        if (_pending.Count == 0) { if (!continuation) _continuation = false; return; }
         if (_kind != BlockKind.Code)
         {
-            _pending[0] = _pending[0] with { Text = _pending[0].Text.TrimStart() };
-            _pending[^1] = _pending[^1] with { Text = _pending[^1].Text.TrimEnd() };
+            if (!_continuation) _pending[0] = _pending[0] with { Text = _pending[0].Text.TrimStart() };
+            if (!continuation) _pending[^1] = _pending[^1] with { Text = _pending[^1].Text.TrimEnd() };
         }
-        if (_pending.Any(x => !string.IsNullOrWhiteSpace(x.Text)))
+        if (_pending.Any(x => !string.IsNullOrWhiteSpace(x.Text)) || (continuation || _continuation) && _pendingCharacters > 0)
         {
-            if (_kind == BlockKind.ListItem) _pending.Insert(0, new BookInline("•  "));
-            Add(new BookBlock(_kind, _pending.ToArray(), _level));
+            if (_kind == BlockKind.ListItem && !_continuation) _pending.Insert(0, new BookInline("•  "));
+            Add(new BookBlock(_kind, _pending.ToArray(), _level, ContinuesPrevious: _continuation));
         }
         _pending.Clear(); _pendingCharacters = 0;
+        _continuation = continuation;
     }
 
     private void Add(BookBlock block)

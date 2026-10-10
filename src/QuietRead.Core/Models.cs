@@ -34,7 +34,7 @@ public enum TextStyle { None = 0, Bold = 1, Italic = 2, Code = 4, Superscript = 
 public sealed record LocalLink(string Path, string Fragment);
 public sealed record BookInline(string Text, TextStyle Style = TextStyle.None, LocalLink? Link = null);
 public sealed record BookBlock(BlockKind Kind, IReadOnlyList<BookInline> Inlines,
-    int Level = 0, string? ImagePath = null, string? Alt = null)
+    int Level = 0, string? ImagePath = null, string? Alt = null, bool ContinuesPrevious = false)
 {
     public string PlainText => string.Concat(Inlines.Select(x => x.Text));
 }

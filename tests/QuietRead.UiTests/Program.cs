@@ -117,6 +117,23 @@ internal static class Program
                     Require(prepared.Skipped > 0, "Excess images were not skipped.");
                     Require(prepared.Images.ContainsKey("small.gif"), "A valid first GIF frame failed to decode.");
                 });
+                await Check("Invalid images cannot bypass the cumulative input allocation budget", async () =>
+                {
+                    string fixture = Path.Combine(temporary, "invalid-images.epub");
+                    byte[] invalid = new byte[ReaderLimits.ImageBytes];
+                    WriteFixture(fixture, [string.Concat(Enumerable.Range(0, 24).Select(i => $"<img src='i{i}.png'/>"))],
+                        Enumerable.Range(0, 24).ToDictionary(i => $"i{i}.png", _ => invalid));
+                    using var book = EpubBook.Open(fixture);
+                    ParsedChapter chapter = book.ReadChapter(0);
+                    var result = await Task.Run(() =>
+                    {
+                        long before = GC.GetAllocatedBytesForCurrentThread();
+                        PreparedImages images = DocumentRenderer.PrepareImages(book, chapter, 0, chapter.Blocks.Count, CancellationToken.None);
+                        return (images, allocated: GC.GetAllocatedBytesForCurrentThread() - before);
+                    });
+                    Require(result.images.Images.Count == 0 && result.images.Skipped == 24, "Invalid images were not skipped.");
+                    Require(result.allocated < 32L * 1024 * 1024, $"Invalid image input allocated {result.allocated} bytes.");
+                });
                 await Check("Full-text search renders results and local hyperlinks have no external URI", async () =>
                 {
                     window.SearchBox.Text = "阅读";
@@ -137,6 +154,38 @@ internal static class Program
                         .SelectMany(p => p.Inlines.OfType<Span>()).SelectMany(s => s.Inlines.OfType<Run>())
                         .Where(r => r.ReadLocalValue(TextElement.BackgroundProperty) != DependencyProperty.UnsetValue).Select(r => r.Text));
                     Require(highlighted.Contains("的 Aa", StringComparison.Ordinal), "Highlight stopped at the bold boundary.");
+                });
+                await Check("Search highlights both sides of an artificial paragraph split", () =>
+                {
+                    string fixture = Path.Combine(temporary, "split-search.epub");
+                    WriteFixture(fixture, ["<p>" + new string('x', 4093) + "<b>alpha</b> beta</p>"]);
+                    using var book = EpubBook.Open(fixture);
+                    ParsedChapter chapter = book.ReadChapter(0);
+                    Require(book.Search("alpha beta").Hits.Count == 1, "Split phrase was not found.");
+                    FlowDocument document = DocumentRenderer.Create(chapter, 0, chapter.Blocks.Count,
+                        new PreparedImages(new Dictionary<string, ImageSource>(), 0), new ReaderPreferences(), "alpha beta", _ => { }, out _);
+                    string highlighted = string.Concat(document.Blocks.OfType<Paragraph>()
+                        .SelectMany(p => p.Inlines.OfType<Span>()).SelectMany(s => s.Inlines.OfType<Run>())
+                        .Where(r => r.ReadLocalValue(TextElement.BackgroundProperty) != DependencyProperty.UnsetValue).Select(r => r.Text));
+                    Require(highlighted == "alpha beta", "Split phrase highlight was incomplete.");
+                    Require(document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines.OfType<Span>())
+                        .Where(s => s.FontWeight == FontWeights.SemiBold).SelectMany(s => s.Inlines.OfType<Run>()).Any(r => r.Text == "alp"),
+                        "Highlight removed bold styling.");
+                    return Task.CompletedTask;
+                });
+                await Check("Previous chapter navigation reaches the bottom of a tall final paragraph", async () =>
+                {
+                    string fixture = Path.Combine(temporary, "previous-bottom.epub");
+                    WriteFixture(fixture, ["<p>start</p><p>" + string.Concat(Enumerable.Repeat("last paragraph words ", 190)) + "</p>", "<p>next chapter</p>"]);
+                    await window.OpenBookAsync(fixture);
+                    await window.NavigateAsync(1);
+                    await window.StepReadingAsync(-1);
+                    await Idle(window);
+                    ScrollViewer scroll = Visuals<ScrollViewer>(window.Reader).First();
+                    Require(window.ProgressText.Text.StartsWith("1 / 2", StringComparison.Ordinal), "Previous chapter was not selected.");
+                    Require(scroll.ScrollableHeight > 100, "Fixture does not exercise scrolling.");
+                    Require(Math.Abs(scroll.VerticalOffset - scroll.ScrollableHeight) < 2, "Previous page did not reach the chapter bottom.");
+                    await window.OpenBookAsync(sample);
                 });
                 await Check("Bookmark button stores one bookmark and rejects duplicates", () =>
                 {
@@ -191,8 +240,9 @@ internal static class Program
                     await pending;
                     await window.OpenBookAsync(sample); // closed windows ignore further requests
                     AppState state = store.Load();
-                    Require(!store.LoadFailed && state.Books.Count == 1, "History did not persist.");
-                    Require(state.Books[0].ChapterIndex == 2 && state.Books[0].Bookmarks.Count == 1, "Reading position/bookmark missing.");
+                    Require(!store.LoadFailed && state.Books.Count == 2, "History did not persist.");
+                    BookHistory sampleHistory = state.Books.Single(b => b.FilePath == sample);
+                    Require(sampleHistory.ChapterIndex == 2 && sampleHistory.Bookmarks.Count == 1, "Reading position/bookmark missing.");
                     Require(Math.Abs(state.Preferences.FontSize - 28) < 0.01, "Preferences did not persist.");
                     window = new MainWindow(new StateStore(temporary));
                     window.Show();
@@ -305,5 +355,22 @@ internal static class Program
         Xml("c.xhtml", "<html><body>" + string.Concat(Enumerable.Range(0, 9).Select(i => $"<img src='i{i}.png'/>")) + "<img src='small.gif'/></body></html>");
         for (int i = 0; i < 9; i++) Add($"i{i}.png", png.ToArray());
         Add("small.gif", Convert.FromHexString("47494638396101000100800000000000FFFFFF2C00000000010001000002024401003B"));
+    }
+
+    private static void WriteFixture(string path, string[] bodies, Dictionary<string, byte[]>? images = null)
+    {
+        using var file = File.Create(path);
+        using var zip = new ZipArchive(file, ZipArchiveMode.Create);
+        void Add(string name, byte[] data) { using Stream stream = zip.CreateEntry(name).Open(); stream.Write(data); }
+        void Xml(string name, string text) => Add(name, System.Text.Encoding.UTF8.GetBytes(text));
+        Xml("mimetype", "application/epub+zip");
+        Xml("META-INF/container.xml", "<container><rootfiles><rootfile full-path='book.opf'/></rootfiles></container>");
+        string manifest = string.Concat(Enumerable.Range(0, bodies.Length).Select(i => $"<item id='c{i}' href='c{i}.xhtml' media-type='application/xhtml+xml'/>"));
+        if (images != null)
+            manifest += string.Concat(images.Keys.Select((name, i) => $"<item id='i{i}' href='{name}' media-type='image/png'/>"));
+        Xml("book.opf", "<package><metadata><title>UI audit fixture</title></metadata><manifest>" + manifest + "</manifest><spine>" +
+            string.Concat(Enumerable.Range(0, bodies.Length).Select(i => $"<itemref idref='c{i}'/>")) + "</spine></package>");
+        for (int i = 0; i < bodies.Length; i++) Xml($"c{i}.xhtml", "<html><body>" + bodies[i] + "</body></html>");
+        if (images != null) foreach ((string name, byte[] data) in images) Add(name, data);
     }
 }

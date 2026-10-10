@@ -8,6 +8,12 @@ using System.Text;
 using System.Text.Json;
 using QuietRead.Core;
 
+if (args.Length == 2 && args[0] == "--state-lock-probe")
+{
+    try { using var session = new StateStore(args[1]).AcquireSession(); return 0; }
+    catch (IOException) { return 3; }
+}
+
 string root = Path.Combine(Path.GetTempPath(), "QuietRead-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var outcomes = new List<object>();
@@ -264,8 +270,59 @@ Test("Large paragraph is split without losing text or surrogate pairs", () =>
     Check.True(chapter.Blocks.Count > 1);
     Check.True(chapter.Blocks.All(x => x.PlainText.Length <= 4099));
     string merged = string.Concat(chapter.Blocks.Select(x => x.PlainText));
-    Check.Equal(text.Replace(" ", ""), merged.Replace(" ", ""));
+    Check.Equal(text.Trim(), merged);
     Check.False(merged.Contains('\uFFFD'));
+});
+
+Test("Artificial paragraph splits preserve spaces, styles and Unicode and remain searchable", () =>
+{
+    foreach (string body in new[]
+    {
+        "<p>" + new string('x', 4093) + "alpha beta" + new string('y', 20) + "</p>",
+        "<p>" + new string('x', 4095) + " alpha beta" + new string('y', 20) + "</p>",
+        "<p>" + new string('x', 4093) + "<strong>alpha</strong> beta" + new string('y', 20) + "</p>",
+        "<p>" + new string('x', 4095) + "😀alpha beta" + new string('y', 20) + "</p>"
+    })
+    {
+        using var book = EpubBook.Open(WriteFixture(Fixtures.Book([body])));
+        ParsedChapter chapter = book.ReadChapter(0);
+        Check.True(chapter.Blocks[1].ContinuesPrevious);
+        string expected = System.Xml.Linq.XElement.Parse(body).Value;
+        Check.Equal(expected, string.Concat(chapter.Blocks.Select(x => x.PlainText)));
+        SearchOutcome found = book.Search("alpha beta");
+        Check.Equal(1, found.Hits.Count);
+        Check.True(found.Hits[0].Snippet.Contains("alpha beta", StringComparison.Ordinal));
+    }
+    using var separate = EpubBook.Open(WriteFixture(Fixtures.Book(["<p>alpha</p><p> beta</p>"])));
+    Check.Equal(0, separate.Search("alpha beta").Hits.Count);
+});
+
+Test("Inline-count splits preserve phrase matches without adding repeated list bullets", () =>
+{
+    string body = "<li>" + string.Concat(Enumerable.Range(0, 511).Select(i => i % 2 == 0 ? "<b>x</b>" : "<i>x</i>")) +
+        "<em>a</em><b>lpha beta</b></li>";
+    using var book = EpubBook.Open(WriteFixture(Fixtures.Book([body])));
+    ParsedChapter chapter = book.ReadChapter(0);
+    Check.Equal(2, chapter.Blocks.Count);
+    Check.True(chapter.Blocks[1].ContinuesPrevious);
+    Check.Equal("•  " + new string('x', 511) + "alpha beta", string.Concat(chapter.Blocks.Select(x => x.PlainText)));
+    Check.Equal(1, book.Search("alpha beta").Hits.Count);
+});
+
+Test("Search context can cross several continuation blocks but stops at real boundaries", () =>
+{
+    var chapter = new ParsedChapter([
+        new BookBlock(BlockKind.Paragraph, [new BookInline("a")]),
+        new BookBlock(BlockKind.Paragraph, [new BookInline("b")], ContinuesPrevious: true),
+        new BookBlock(BlockKind.Paragraph, [new BookInline("c")], ContinuesPrevious: true),
+        new BookBlock(BlockKind.Paragraph, [new BookInline("d")])
+    ], new Dictionary<string, int>(), false, 4);
+    Span<char> buffer = stackalloc char[ChapterText.BufferCharacters];
+    Check.Equal("abc", ChapterText.CopyContext(chapter, 0, buffer, 2, out int prefix, out int length).ToString());
+    Check.Equal(0, prefix); Check.Equal(1, length);
+    Check.Equal("abc", ChapterText.CopyContext(chapter, 2, buffer, 2, out prefix, out length).ToString());
+    Check.Equal(2, prefix); Check.Equal(1, length);
+    Check.Equal("d", ChapterText.CopyContext(chapter, 3, buffer, 2, out prefix, out length).ToString());
 });
 
 Test("Nested quotes, lists, line breaks, code and basic table rows survive conversion", () =>
@@ -297,6 +354,37 @@ Test("Nested SVG fallback text cannot multiply retained output", () =>
     ParsedChapter chapter = book.ReadChapter(0);
     Check.Equal(1, chapter.Blocks.Count); Check.Equal(BlockKind.Image, chapter.Blocks[0].Kind);
     Check.True(chapter.Blocks[0].Alt!.Length < 1000); Check.Equal(0, chapter.CharacterCount);
+});
+
+Test("Failed image validation and CRC checks consume the shared input budget", () =>
+{
+    var entries = Fixtures.Book(["<p>images</p>"]);
+    byte[] invalid = new byte[ReaderLimits.ImageBytes];
+    for (int i = 0; i < 3; i++)
+    {
+        entries[$"OEBPS/bad{i}.png"] = invalid;
+        Fixtures.AddManifest(entries, $"<item id='bad{i}' href='bad{i}.png' media-type='image/png'/>");
+    }
+    using (var book = EpubBook.Open(WriteFixture(entries)))
+    {
+        var budget = new ResourceReadBudget(32 * 1024 * 1024);
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 3; i++)
+            Check.Throws<EpubException>(() => book.ReadImage($"OEBPS/bad{i}.png", budget: budget));
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Check.Equal(8 * 1024 * 1024, budget.RemainingBytes);
+        Check.True(allocated < 27L * 1024 * 1024, $"Failed images allocated {allocated} bytes.");
+    }
+    entries = Fixtures.Book(["<p>CRC</p>"]);
+    entries["OEBPS/image.png"] = Fixtures.Png(1, 1);
+    Fixtures.AddManifest(entries, "<item id='img' href='image.png' media-type='image/png'/>");
+    byte[] zip = Fixtures.Zip(entries);
+    Fixtures.ChangeCentral(zip, "OEBPS/image.png", (bytes, at) => bytes[at + 16] ^= 1);
+    string path = Path.Combine(root, "budget-crc.epub"); File.WriteAllBytes(path, zip);
+    using var broken = EpubBook.Open(path);
+    var crcBudget = new ResourceReadBudget(100);
+    Check.Throws<EpubException>(() => broken.ReadImage("OEBPS/image.png", budget: crcBudget));
+    Check.Equal(67, crcBudget.RemainingBytes);
 });
 
 Test("Oversized raster and mismatched MIME are rejected", () =>
@@ -409,6 +497,30 @@ Test("Search handles Unicode, skips broken chapters and caps results", () =>
     { SearchOutcome result = book.Search("match"); Check.Equal(200, result.Hits.Count); Check.True(result.LimitReached); }
 });
 
+Test("Repeated spine references scan once while retaining ordered hits and failure counts", () =>
+{
+    string body = string.Concat(Enumerable.Repeat("<p>" + new string('x', 4000) + "</p>", 450)) + "<p>needle</p>";
+    var entries = Fixtures.Book([body]);
+    Fixtures.AddManifest(entries, "<item id='alias' href='c0.xhtml' media-type='application/xhtml+xml'/>");
+    string references = string.Concat(Enumerable.Range(0, 64).Select(i => $"<itemref idref='{(i % 2 == 0 ? "c0" : "alias")}'/>"));
+    entries["OEBPS/content.opf"] = Fixtures.Utf8(Encoding.UTF8.GetString(entries["OEBPS/content.opf"]).Replace("<itemref idref='c0'/>", references));
+    using (var book = EpubBook.Open(WriteFixture(entries)))
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        SearchOutcome result = book.Search("needle");
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        Check.Equal(64, result.Hits.Count);
+        Check.True(result.Hits.Select(x => x.ChapterIndex).SequenceEqual(Enumerable.Range(0, 64)));
+        Check.True(result.Hits.All(x => x.BlockIndex == 450));
+        Check.Equal(0, result.FailedChapters); Check.Equal(0, book.CachedChapterCount);
+        Check.True(allocated < 40L * 1024 * 1024, $"Repeated resources allocated {allocated} bytes.");
+        allocationResults.Add(new { name = "Repeated resource search", references = 64, allocatedBytes = allocated });
+    }
+    entries["OEBPS/c0.xhtml"] = Fixtures.Utf8("<broken");
+    using var broken = EpubBook.Open(WriteFixture(entries));
+    Check.Equal(64, broken.Search("needle").FailedChapters);
+});
+
 Test("Cancellation stops open, read and search; disposed books cannot be reused", () =>
 {
     string path = WriteFixture(Fixtures.Book(["<p>one</p>"]));
@@ -457,6 +569,35 @@ Test("State size and unknown schema are safely ignored", () =>
     var store = new StateStore(directory); Check.Equal(0, store.Load().Books.Count); Check.True(store.LoadFailed);
     File.WriteAllText(Path.Combine(directory, "state.json"), "{\"Schema\":888}");
     store = new StateStore(directory); Check.Equal(1, store.Load().Schema); Check.True(store.LoadFailed);
+});
+
+Test("State sessions exclude other processes and can be reacquired after disposal", () =>
+{
+    string directory = Path.Combine(root, "exclusive-state");
+    var store = new StateStore(directory);
+    int Probe()
+    {
+        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+        if (Path.GetFileNameWithoutExtension(Environment.ProcessPath) == "dotnet")
+            start.ArgumentList.Add(System.Reflection.Assembly.GetExecutingAssembly().Location);
+        start.ArgumentList.Add("--state-lock-probe"); start.ArgumentList.Add(directory);
+        using Process process = Process.Start(start)!;
+        if (!process.WaitForExit(20_000)) { process.Kill(); throw new InvalidOperationException("State lock probe timed out."); }
+        return process.ExitCode;
+    }
+    using (store.AcquireSession())
+    {
+        Check.Throws<IOException>(() => new StateStore(directory).AcquireSession());
+        Check.Equal(3, Probe());
+        store.Save(StateStore.Snapshot(new AppState
+        {
+            Books = [new BookHistory
+            { BookKey = new string('a', 64), FilePath = "saved.epub", Bookmarks = [new Bookmark { Label = "keep" }] }]
+        }));
+    }
+    Check.Equal(0, Probe());
+    using var next = new StateStore(directory).AcquireSession();
+    Check.Equal("keep", new StateStore(directory).Load().Books[0].Bookmarks[0].Label);
 });
 
 Test("The maximum bounded Unicode history can be saved and reloaded", () =>

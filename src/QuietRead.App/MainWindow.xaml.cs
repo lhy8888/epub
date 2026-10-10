@@ -197,7 +197,7 @@ public partial class MainWindow : Window
                 if (_closed || generation != _readGeneration || book != _book) return;
                 Reader.UpdateLayout();
                 _scroll = FindVisual<ScrollViewer>(Reader);
-                if ((fragment != null || slice.target != slice.start) && _renderedBlocks.TryGetValue(slice.target, out Block? target))
+                if ((fragment != null || fraction == 0 && slice.target != slice.start) && _renderedBlocks.TryGetValue(slice.target, out Block? target))
                     target.BringIntoView();
                 else _scroll?.ScrollToVerticalOffset(Math.Clamp(fraction, 0, 1) * (_scroll?.ScrollableHeight ?? 0));
                 _restoring = false;
@@ -273,7 +273,7 @@ public partial class MainWindow : Window
         UpdateButtons();
     }
 
-    private async Task StepReadingAsync(int direction)
+    internal async Task StepReadingAsync(int direction)
     {
         if (_book == null || _chapter == null || _busy) return;
         _scroll ??= FindVisual<ScrollViewer>(Reader);
