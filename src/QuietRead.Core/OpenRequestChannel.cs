@@ -40,18 +40,34 @@ public sealed class OpenRequestChannel : IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         try
         {
-            using var pipe = new NamedPipeClientStream(".", PipeName(directory), PipeDirection.InOut,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
             byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new Request(1, path));
             if (bytes.Length > MaxMessageBytes) return false;
             byte[] header = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(header, bytes.Length);
-            await pipe.WriteAsync(header, timeout.Token).ConfigureAwait(false);
-            await pipe.WriteAsync(bytes, timeout.Token).ConfigureAwait(false);
-            await pipe.FlushAsync(timeout.Token).ConfigureAwait(false);
-            byte[] reply = new byte[1];
-            await pipe.ReadExactlyAsync(reply, timeout.Token).ConfigureAwait(false);
-            return reply[0] == 1;
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                bool sent = false;
+                try
+                {
+                    using var pipe = new NamedPipeClientStream(".", PipeName(directory), PipeDirection.InOut,
+                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                    await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
+                    await pipe.WriteAsync(header, timeout.Token).ConfigureAwait(false);
+                    await pipe.WriteAsync(bytes, timeout.Token).ConfigureAwait(false);
+                    sent = true;
+                    await pipe.FlushAsync(timeout.Token).ConfigureAwait(false);
+                    byte[] reply = new byte[1];
+                    await pipe.ReadExactlyAsync(reply, timeout.Token).ConfigureAwait(false);
+                    return reply[0] == 1;
+                }
+                catch (IOException) when (!sent && attempt < 3)
+                {
+                    // Unix clients can connect to the previous listener while it
+                    // retires. Retry only incomplete frames to avoid replaying an
+                    // accepted request; all attempts share the same deadline.
+                    await Task.Delay(50, timeout.Token).ConfigureAwait(false);
+                }
+            }
+            return false;
         }
         catch (Exception exception) when (exception is IOException or OperationCanceledException or UnauthorizedAccessException)
         { return false; }
@@ -59,32 +75,45 @@ public sealed class OpenRequestChannel : IDisposable
 
     private async Task ListenAsync()
     {
-        while (!_stop.IsCancellationRequested)
+        NamedPipeServerStream? waiting = null;
+        try
         {
-            try
+            while (!_stop.IsCancellationRequested)
             {
-                using var pipe = new NamedPipeServerStream(_name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 4096, 4096);
-                await pipe.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-                timeout.CancelAfter(TimeSpan.FromSeconds(2));
-                byte[] header = new byte[4];
-                await pipe.ReadExactlyAsync(header, timeout.Token).ConfigureAwait(false);
-                int length = BinaryPrimitives.ReadInt32LittleEndian(header);
-                if (length is <= 0 or > MaxMessageBytes) continue;
-                byte[] bytes = new byte[length];
-                await pipe.ReadExactlyAsync(bytes, timeout.Token).ConfigureAwait(false);
-                Request? request = JsonSerializer.Deserialize<Request>(bytes, new JsonSerializerOptions { MaxDepth = 4 });
-                bool valid = request is { Version: 1 } && IsValidPath(request.Path);
-                if (valid) _receive(request!.Path);
-                await pipe.WriteAsync(new byte[] { valid ? (byte)1 : (byte)0 }, timeout.Token).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is IOException or OperationCanceledException or JsonException or UnauthorizedAccessException)
-            {
-                if (!_stop.IsCancellationRequested) await Task.Delay(50).ConfigureAwait(false);
+                NamedPipeServerStream? current = null;
+                try
+                {
+                    waiting ??= CreateListener();
+                    await waiting.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);
+                    current = waiting; waiting = null;
+                    // Keep the shared endpoint alive before retiring this connection.
+                    // Two handles are bounded; only this request is processed at a time.
+                    waiting = CreateListener();
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                    byte[] header = new byte[4];
+                    await current.ReadExactlyAsync(header, timeout.Token).ConfigureAwait(false);
+                    int length = BinaryPrimitives.ReadInt32LittleEndian(header);
+                    if (length is <= 0 or > MaxMessageBytes) continue;
+                    byte[] bytes = new byte[length];
+                    await current.ReadExactlyAsync(bytes, timeout.Token).ConfigureAwait(false);
+                    Request? request = JsonSerializer.Deserialize<Request>(bytes, new JsonSerializerOptions { MaxDepth = 4 });
+                    bool valid = request is { Version: 1 } && IsValidPath(request.Path);
+                    if (valid) _receive(request!.Path);
+                    await current.WriteAsync(new byte[] { valid ? (byte)1 : (byte)0 }, timeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is IOException or OperationCanceledException or JsonException or UnauthorizedAccessException)
+                {
+                    if (!_stop.IsCancellationRequested) await Task.Delay(50).ConfigureAwait(false);
+                }
+                finally { current?.Dispose(); }
             }
         }
+        finally { waiting?.Dispose(); }
     }
+
+    private NamedPipeServerStream CreateListener() => new(_name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte,
+        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 4096, 4096);
 
     public void Dispose()
     {

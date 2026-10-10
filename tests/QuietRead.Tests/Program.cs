@@ -772,17 +772,26 @@ Test("Oversized pipe messages are rejected before allocation and the listener re
     Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
     foreach (string message in new[] { "{not-json}", "{\"Version\":99}", "{\"Version\":1,\"Path\":\"relative.epub\"}" })
     {
-        using var pipe = new NamedPipeClientStream(".", OpenRequestChannel.PipeName(directory), PipeDirection.InOut,
+        string invalidScope = Path.Combine(root, "invalid-channel-" + Guid.NewGuid().ToString("N"));
+        int invalidReceived = 0;
+        using var invalidChannel = new OpenRequestChannel(invalidScope, _ => Interlocked.Increment(ref invalidReceived));
+        using var pipe = new NamedPipeClientStream(".", OpenRequestChannel.PipeName(invalidScope), PipeDirection.InOut,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-        pipe.Connect(1000); byte[] bytes = Encoding.UTF8.GetBytes(message), header = new byte[4];
-        BinaryPrimitives.WriteInt32LittleEndian(header, bytes.Length); pipe.Write(header); pipe.Write(bytes); pipe.Flush();
         bool rejected;
-        try { rejected = pipe.ReadByte() is -1 or 0; }
+        try
+        {
+            pipe.Connect(1000); byte[] bytes = Encoding.UTF8.GetBytes(message), header = new byte[4];
+            BinaryPrimitives.WriteInt32LittleEndian(header, bytes.Length); pipe.Write(header); pipe.Write(bytes); pipe.Flush();
+            rejected = pipe.ReadByte() is -1 or 0;
+        }
         catch (IOException) { rejected = true; }
         Check.True(rejected, "Invalid pipe request was accepted.");
-        Check.Equal(1, Volatile.Read(ref received));
+        Check.Equal(0, Volatile.Read(ref invalidReceived));
+        pipe.Dispose();
+        Check.True(OpenRequestChannel.TryForwardAsync(invalidScope, null).GetAwaiter().GetResult());
     }
-    Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
+    for (int i = 0; i < 12; i++) Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
+    Check.Equal(13, Volatile.Read(ref received));
 });
 
 P1Tests.Register(tests, root);
