@@ -156,6 +156,8 @@ internal static class DocumentRenderer
                         // No NavigateUri and no shell/browser launch path.
                         hyperlink.Click += (_, _) => followLink(target);
                         hyperlink.SetResourceReference(TextElement.ForegroundProperty, "AccentBrush");
+                        System.Windows.Automation.AutomationProperties.SetName(hyperlink,
+                            (target.IsNote ? "查看注释：" : "书内链接：") + inline.Text[..Math.Min(160, inline.Text.Length)]);
                     }
                     if (inline.Style.HasFlag(TextStyle.Bold)) span.FontWeight = FontWeights.SemiBold;
                     if (inline.Style.HasFlag(TextStyle.Italic)) span.FontStyle = FontStyles.Italic;
@@ -208,7 +210,7 @@ internal static class DocumentRenderer
             if (start > position) span.Inlines.Add(new Run(text[position..start]));
             var run = new Run(text.Substring(start, end - start));
             run.SetResourceReference(TextElement.BackgroundProperty, "HighlightBrush");
-            run.SetResourceReference(TextElement.ForegroundProperty, "TextBrush");
+            run.SetResourceReference(TextElement.ForegroundProperty, "HighlightTextBrush");
             span.Inlines.Add(run); position = end;
         }
         if (position < text.Length) span.Inlines.Add(new Run(text[position..]));

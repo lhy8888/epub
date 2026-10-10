@@ -255,12 +255,14 @@ public sealed class EpubBook : IDisposable
         }
     }
 
-    public SearchOutcome Search(string query, CancellationToken token = default)
+    public SearchOutcome Search(string query, CancellationToken token = default, IProgress<SearchProgress>? progress = null)
     {
         query = query.Trim();
         if (query.Length is 0 or > 128) throw new ArgumentException("搜索文字应为 1–128 个字符。", nameof(query));
         var hits = new List<SearchHit>();
         var scanned = new Dictionary<string, IReadOnlyList<BlockSearchHit>?>(StringComparer.Ordinal);
+        int total = Chapters.Select(c => c.Path).Distinct(StringComparer.Ordinal).Count();
+        progress?.Report(new SearchProgress(0, total));
         int failed = 0;
         for (int chapterIndex = 0; chapterIndex < Chapters.Count; chapterIndex++)
         {
@@ -271,12 +273,13 @@ public sealed class EpubBook : IDisposable
                 try { matches = ScanChapter(ReadChapter(chapterIndex, token, false), query, token); }
                 catch (EpubException) { matches = null; }
                 scanned.Add(path, matches);
+                progress?.Report(new SearchProgress(scanned.Count, total));
             }
             if (matches == null) { failed++; continue; }
             foreach (BlockSearchHit match in matches)
             {
                 token.ThrowIfCancellationRequested();
-                hits.Add(new SearchHit(chapterIndex, match.BlockIndex, Chapters[chapterIndex].Title, match.Snippet));
+                hits.Add(new SearchHit(chapterIndex, match.BlockIndex, Chapters[chapterIndex].Title, match.Snippet, match.Offset));
                 if (hits.Count >= ReaderLimits.SearchResults) return new SearchOutcome(hits.AsReadOnly(), failed, true);
             }
         }
@@ -300,13 +303,48 @@ public sealed class EpubBook : IDisposable
             if (count > 0 && char.IsHighSurrogate(text[start + count - 1])) count--;
             string snippet = (start > 0 ? "…" : "") + new string(text.Slice(start, count)).Replace('\n', ' ') +
                 (start + count < text.Length ? "…" : "");
-            matches.Add(new BlockSearchHit(index, snippet));
+            matches.Add(new BlockSearchHit(index, snippet, found - prefix));
             if (matches.Count >= ReaderLimits.SearchResults) break;
         }
         return matches;
     }
 
-    private sealed record BlockSearchHit(int BlockIndex, string Snippet);
+    private sealed record BlockSearchHit(int BlockIndex, string Snippet, int Offset);
+
+    public FootnotePreview? ReadFootnote(LocalLink link, CancellationToken token = default)
+    {
+        int index = FindChapter(link.Path);
+        if (index < 0 || link.Fragment.Length == 0) return null;
+        ParsedChapter chapter = ReadChapter(index, token);
+        FootnoteRange? range = chapter.Footnotes?.GetValueOrDefault(link.Fragment);
+        if (range == null)
+        {
+            if (!link.IsNote || !chapter.Anchors.TryGetValue(link.Fragment, out int start)) return null;
+            range = new FootnoteRange(start, 1);
+        }
+        var blocks = new List<BookBlock>();
+        int remaining = 4096, inlinesLeft = 256;
+        bool truncated = false;
+        for (int i = range.Start; i < range.Start + range.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            if (blocks.Count >= 32 || remaining == 0 || inlinesLeft == 0) { truncated = true; break; }
+            BookBlock source = chapter.Blocks[i];
+            if (source.Kind is BlockKind.Image or BlockKind.Rule) { truncated = true; continue; }
+            var inlines = new List<BookInline>();
+            foreach (BookInline inline in source.Inlines)
+            {
+                if (remaining == 0 || inlinesLeft == 0) { truncated = true; break; }
+                int length = Math.Min(remaining, inline.Text.Length);
+                if (length < inline.Text.Length && length > 0 && char.IsHighSurrogate(inline.Text[length - 1])) length--;
+                inlines.Add(new BookInline(inline.Text[..length], inline.Style));
+                remaining -= length; inlinesLeft--;
+                if (length < inline.Text.Length) { truncated = true; break; }
+            }
+            blocks.Add(source with { Inlines = inlines.AsReadOnly() });
+        }
+        return blocks.Count == 0 ? null : new FootnotePreview(blocks.AsReadOnly(), truncated);
+    }
 
     private XDocument ReadXml(string path, CancellationToken token) => SafeXml.Parse(ReadBytes(path, ReaderLimits.XmlBytes, token), token);
 

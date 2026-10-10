@@ -16,6 +16,7 @@ public sealed class ReaderPreferences
 
 public sealed class Bookmark
 {
+    public ReadingLocator? Locator { get; set; }
     public int ChapterIndex { get; set; }
     public int BlockIndex { get; set; }
     public double Fraction { get; set; }
@@ -25,6 +26,7 @@ public sealed class Bookmark
 
 public sealed class BookHistory
 {
+    public ReadingLocator? Locator { get; set; }
     public string BookKey { get; set; } = "";
     public string FilePath { get; set; } = "";
     public string Title { get; set; } = "";
@@ -38,7 +40,7 @@ public sealed class BookHistory
 
 public sealed class AppState
 {
-    public int Schema { get; set; } = 1;
+    public int Schema { get; set; } = 2;
     public ReaderPreferences Preferences { get; set; } = new();
     public List<BookHistory> Books { get; set; } = [];
 
@@ -56,6 +58,7 @@ public sealed class AppState
             .DistinctBy(x => x.BookKey).OrderByDescending(x => x.LastReadUtc).Take(32).ToList();
         foreach (BookHistory book in Books)
         {
+            book.Locator = ReadingLocator.Normalize(book.Locator);
             book.Title = Clip(book.Title, 256); book.Author = Clip(book.Author, 256);
             book.ChapterIndex = Math.Clamp(book.ChapterIndex, 0, ReaderLimits.SpineItems - 1);
             book.BlockIndex = Math.Clamp(book.BlockIndex, 0, ReaderLimits.ChapterBlocks - 1);
@@ -64,6 +67,7 @@ public sealed class AppState
             book.Bookmarks = book.Bookmarks.Where(x => x != null).Take(64).ToList();
             foreach (Bookmark mark in book.Bookmarks)
             {
+                mark.Locator = ReadingLocator.Normalize(mark.Locator);
                 mark.ChapterIndex = Math.Clamp(mark.ChapterIndex, 0, ReaderLimits.SpineItems - 1);
                 mark.BlockIndex = Math.Clamp(mark.BlockIndex, 0, ReaderLimits.ChapterBlocks - 1);
                 mark.Fraction = Clamp(mark.Fraction, 0, 1, 0); mark.Label = Clip(mark.Label, 100);
@@ -77,14 +81,16 @@ public sealed class AppState
 
 public sealed class StateStore
 {
-    // Fits 32 books with 64 bounded bookmarks each, even with escaped Unicode.
-    public const int MaxStateBytes = 2 * 1024 * 1024;
+    // Bounded locators add quote/context to the 32 x 64 bookmarks, including
+    // worst-case JSON escaping. Chapter source paths are not duplicated here.
+    public const int MaxStateBytes = 4 * 1024 * 1024;
     private readonly string _path;
     private readonly object _writeGate = new();
     private long _savedRevision;
     private static readonly JsonSerializerOptions Options = new()
     { WriteIndented = false, MaxDepth = 16, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
     public bool LoadFailed { get; private set; }
+    public string DirectoryPath => Path.GetDirectoryName(_path)!;
 
     public StateStore(string? directory = null)
     {
@@ -110,7 +116,8 @@ public sealed class StateStore
             using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096);
             if (file.Length > MaxStateBytes) throw new InvalidDataException("Settings exceed size limit.");
             AppState state = JsonSerializer.Deserialize<AppState>(file, Options) ?? new AppState();
-            if (state.Schema != 1) throw new InvalidDataException("Unsupported settings version.");
+            if (state.Schema is not (1 or 2)) throw new InvalidDataException("Unsupported settings version.");
+            state.Schema = 2;
             state.Normalize(); return state;
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or NotSupportedException)

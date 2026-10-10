@@ -10,6 +10,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="#28664B" />
     <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0E8" />
     <SolidColorBrush x:Key="HighlightBrush" Color="#F8E69F" />
+    <SolidColorBrush x:Key="HighlightTextBrush" Color="#25352D" />
     <SolidColorBrush x:Key="CodeBrush" Color="#EDF1EC" />
     <SolidColorBrush x:Key="PrimaryTextBrush" Color="#FFFFFF" />
     <Style TargetType="Button">
@@ -52,6 +53,7 @@
           <ContentPresenter /></Border><ControlTemplate.Triggers>
           <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource AccentSoftBrush}" /></Trigger>
           <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource AccentSoftBrush}" /></Trigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /><Setter TargetName="Row" Property="BorderThickness" Value="2" /></Trigger>
         </ControlTemplate.Triggers>
       </ControlTemplate></Setter.Value></Setter>
     </Style>

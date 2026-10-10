@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -251,6 +253,109 @@ internal static class Program
                     Require(window.ProgressText.Text.StartsWith("3 / 4", StringComparison.Ordinal), "Resume did not restore the chapter.");
                     Require(window.BookmarksList.Items.Count == 1, "Resume lost bookmarks.");
                 });
+                var reading = new MainWindow(new StateStore(Path.Combine(temporary, "p0")));
+                reading.Show(); await Idle(reading);
+                try
+                {
+                    string fixture = Path.Combine(temporary, "p0-reading.epub");
+                    WriteFixture(fixture, [string.Concat(Enumerable.Range(0, 140).Select(i =>
+                        $"<p>第{i:000}段 Unique passage {i:000} " + string.Concat(Enumerable.Repeat($"reading-{i:000} words 你好世界。", 14)) + "</p>")),
+                        "<p>正文<a href='c2.xhtml#note' role='doc-noteref'>脚注1</a></p><p>正文继续。</p>",
+                        "<aside id='note' role='doc-footnote'><p>注释内容，含<strong>粗体</strong>和<a href='c1.xhtml'>返回</a>。</p></aside><p>注释之外的段落。</p>"]);
+                    await reading.OpenBookAsync(fixture); await Idle(reading);
+                    await Check("WPF exposes readable text and visible ranges through UI Automation", () =>
+                    {
+                        ITextProvider provider = TextProvider(reading.Reader);
+                        Require(provider.DocumentRange.GetText(2000).Contains("Unique passage", StringComparison.Ordinal), "Screen reader text is missing.");
+                        Require(provider.GetVisibleRanges().Length > 0, "Visible text ranges are missing.");
+                        Require(reading.BackButton.GetValue(System.Windows.Automation.AutomationProperties.NameProperty).ToString()!.Contains("返回", StringComparison.Ordinal), "History control has no useful accessible name.");
+                        return Task.CompletedTask;
+                    });
+                    await Check("Font and window reflow keep the anchored passage visible and bookmarks precise", async () =>
+                    {
+                        ScrollViewer scroll = Visuals<ScrollViewer>(reading.Reader).First();
+                        scroll.ScrollToVerticalOffset(scroll.ScrollableHeight * 0.55); await Idle(reading);
+                        ReadingLocator locator = reading.CaptureReadingLocator()!;
+                        Require(locator.Paragraph > 0 && locator.Quote.Length > 10, "Position did not capture visible text.");
+                        reading.BookmarkButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        reading.FontSizeSlider.Value = 32; reading.WidthSlider.Value = 560;
+                        await Task.Delay(250); await Idle(reading);
+                        RequireVisible(reading.Reader, locator.Quote);
+                        reading.Width = 840; reading.Height = 600;
+                        await Task.Delay(300); await Idle(reading);
+                        RequireVisible(reading.Reader, locator.Quote);
+                        await reading.NavigateAsync(2);
+                        reading.BookmarksList.SelectedIndex = 0;
+                        await WaitUntil(() => reading.ProgressText.Text.StartsWith("1 / 3", StringComparison.Ordinal));
+                        await Idle(reading); RequireVisible(reading.Reader, locator.Quote);
+                    });
+                    await Check("Navigation history supports back, forward and branch replacement", async () =>
+                    {
+                        await reading.NavigateAsync(0); await reading.NavigateAsync(1); await reading.NavigateAsync(2);
+                        await reading.MoveHistoryAsync(false);
+                        Require(reading.ProgressText.Text.StartsWith("2 / 3", StringComparison.Ordinal), "Back did not restore chapter.");
+                        await reading.MoveHistoryAsync(true);
+                        Require(reading.ProgressText.Text.StartsWith("3 / 3", StringComparison.Ordinal), "Forward did not restore chapter.");
+                        await reading.MoveHistoryAsync(false); await reading.NavigateAsync(0);
+                        Require(!reading.ForwardButton.IsEnabled, "A new jump retained stale forward history.");
+                    });
+                    await Check("Cross-chapter footnote preview preserves reading position and restores focus", async () =>
+                    {
+                        await reading.NavigateAsync(1);
+                        ReadingLocator before = reading.CaptureReadingLocator()!;
+                        reading.Reader.Focus();
+                        await reading.FollowLinkAsync(new LocalLink("c2.xhtml", "note", true)); await Idle(reading);
+                        Require(reading.FootnoteOverlay.Visibility == Visibility.Visible, "Footnote preview is hidden.");
+                        string note = new TextRange(reading.FootnoteReader.Document.ContentStart, reading.FootnoteReader.Document.ContentEnd).Text;
+                        Require(note.Contains("注释内容", StringComparison.Ordinal) && !note.Contains("注释之外", StringComparison.Ordinal), "Preview included unrelated text.");
+                        Require(TextProvider(reading.FootnoteReader).DocumentRange.GetText(4096).Contains("注释内容", StringComparison.Ordinal), "Footnote has no accessible text.");
+                        Require(reading.FootnoteCloseButton.IsKeyboardFocused, "Footnote close control did not receive focus.");
+                        reading.CloseFootnote(); await Idle(reading);
+                        Require(reading.Reader.IsKeyboardFocusWithin, "Closing footnote did not restore reading focus.");
+                        Require(reading.CaptureReadingLocator() == before, "Preview changed the main reading position.");
+                        Task retired = reading.FollowLinkAsync(new LocalLink("c2.xhtml", "note", true));
+                        await reading.NavigateAsync(0); await retired;
+                        Require(reading.FootnoteOverlay.Visibility == Visibility.Collapsed, "Retired footnote appeared after navigation.");
+                    });
+                    await Check("Search reports completion, navigates matches and cancellation prevents stale results", async () =>
+                    {
+                        reading.SearchBox.Text = "Unique passage"; await reading.SearchAsync(); await Idle(reading);
+                        Require(reading.SearchProgressBar.Value == 100 && reading.SearchList.Items.Count == 140, "Search progress/results are incomplete.");
+                        await reading.MoveSearchAsync(1);
+                        Require(reading.SearchPositionText.Text.StartsWith("1 /", StringComparison.Ordinal), "First search result was not selected.");
+                        await reading.MoveSearchAsync(1);
+                        Require(reading.SearchPositionText.Text.StartsWith("2 /", StringComparison.Ordinal), "Next search result was not selected.");
+                        await reading.MoveSearchAsync(-1);
+                        Require(reading.SearchPositionText.Text.StartsWith("1 /", StringComparison.Ordinal), "Previous search result was not selected.");
+                        reading.SearchBox.Text = "reading"; Task retired = reading.SearchAsync(); reading.StopSearch();
+                        reading.SearchBox.Text = "注释内容"; await reading.SearchAsync(); await retired; await Idle(reading);
+                        Require(reading.SearchList.Items.Count == 1 && reading.SearchStatusText.Text.Contains("找到 1", StringComparison.Ordinal), "Cancelled search overwrote the newer one.");
+                        Require(!reading.SearchCancelButton.IsEnabled, "Cancel control remained active after completion.");
+                    });
+                    await Check("Named-pipe requests activate the existing reader and open another book", async () =>
+                    {
+                        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        string directory = Path.Combine(temporary, "p0-channel");
+                        using var channel = new OpenRequestChannel(directory, path => reading.Dispatcher.BeginInvoke(new Action(async () =>
+                        { await reading.ReceiveOpenRequestAsync(path); received.TrySetResult(); })));
+                        Require(await OpenRequestChannel.TryForwardAsync(directory, sample), "The pipe did not acknowledge the request.");
+                        await received.Task.WaitAsync(TimeSpan.FromSeconds(10)); await Idle(reading);
+                        Require(reading.BookTitleText.Text == "静读 · 阅读指南", "Existing window did not open the forwarded book.");
+                    });
+                    await Check("Closing and reopening restores the precise location with a different font", async () =>
+                    {
+                        await reading.OpenBookAsync(fixture); await reading.NavigateAsync(0);
+                        ScrollViewer scroll = Visuals<ScrollViewer>(reading.Reader).First();
+                        scroll.ScrollToVerticalOffset(scroll.ScrollableHeight * 0.45); await Idle(reading);
+                        ReadingLocator before = reading.CaptureReadingLocator()!; reading.Close();
+                        var saved = new StateStore(Path.Combine(temporary, "p0")); AppState state = saved.Load();
+                        state.Preferences.FontSize = 18; saved.Save(StateStore.Snapshot(state));
+                        reading = new MainWindow(saved); reading.Show(); await Idle(reading);
+                        await reading.OpenBookAsync(fixture); await Idle(reading);
+                        RequireVisible(reading.Reader, before.Quote);
+                    });
+                }
+                finally { reading.Close(); }
             }
             catch (Exception exception) { Record("WPF smoke harness", exception); }
             finally
@@ -311,6 +416,22 @@ internal static class Program
     { if (!condition) throw new InvalidOperationException(message); }
 
     private static string Text(MainWindow window) => new TextRange(window.Reader.Document.ContentStart, window.Reader.Document.ContentEnd).Text;
+
+    private static ITextProvider TextProvider(FlowDocumentScrollViewer viewer) =>
+        UIElementAutomationPeer.CreatePeerForElement(viewer)?.GetPattern(PatternInterface.Text) as ITextProvider ??
+        throw new InvalidOperationException("The document does not expose UI Automation TextPattern.");
+
+    private static void RequireVisible(FlowDocumentScrollViewer viewer, string text)
+    {
+        ITextRangeProvider? range = TextProvider(viewer).DocumentRange.FindText(text, false, false);
+        Require(range != null && range.GetBoundingRectangles().Length >= 4, "The saved text is outside the visible reading viewport.");
+    }
+
+    private static async Task WaitUntil(Func<bool> completed)
+    {
+        for (int i = 0; i < 100 && !completed(); i++) await Task.Delay(20);
+        Require(completed(), "The reading operation did not settle.");
+    }
 
     private static async Task Idle(MainWindow window)
     {

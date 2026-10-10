@@ -8,6 +8,7 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
 {
     private readonly List<BookBlock> _blocks = [];
     private readonly Dictionary<string, int> _anchors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FootnoteRange> _footnotes = new(StringComparer.Ordinal);
     private readonly List<BookInline> _pending = [];
     private BlockKind _kind = BlockKind.Paragraph;
     private int _level, _characters, _inlineCount, _visits, _pendingCharacters;
@@ -26,7 +27,8 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
             Add(new BookBlock(BlockKind.Paragraph, [new BookInline("此章节没有可显示的文字或图片。")]));
         // Empty anchors at the end of a document still resolve to the last visible block.
         foreach (string key in _anchors.Keys.ToArray()) _anchors[key] = Math.Min(_anchors[key], _blocks.Count - 1);
-        return new ParsedChapter(_blocks.AsReadOnly(), new ReadOnlyDictionary<string, int>(_anchors), rtl, _characters);
+        return new ParsedChapter(_blocks.AsReadOnly(), new ReadOnlyDictionary<string, int>(_anchors), rtl, _characters,
+            new ReadOnlyDictionary<string, FootnoteRange>(_footnotes));
     }
 
     private void Walk(XNode node, TextStyle style, LocalLink? link)
@@ -57,6 +59,10 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         }
         if (name == "hr") { Flush(); Mark(element); Add(new BookBlock(BlockKind.Rule, [])); return; }
         if (name == "br") { Mark(element); Append("\n", style, link); return; }
+
+        bool note = HasSemantic(element, reference: false);
+        if (note) Flush();
+        int noteStart = _blocks.Count;
 
         bool block = name is "p" or "div" or "section" or "article" or "header" or "footer" or "main" or
             "aside" or "blockquote" or "pre" or "li" or "ul" or "ol" or "table" or "tr" or "figure" or
@@ -90,11 +96,39 @@ internal sealed class ContentParser(string source, Func<string, bool> isChapter,
         if (name == "a")
         {
             LocalLink? candidate = ArchivePath.Resolve(source, (string?)element.Attribute("href"));
-            link = candidate != null && isChapter(candidate.Path) ? candidate : null;
+            link = candidate != null && isChapter(candidate.Path) ? candidate with
+            { IsNote = HasSemantic(element, reference: true) } : null;
         }
         if (name is "td" or "th" && _pending.Count != 0) Append("  |  ", TextStyle.None, null);
         foreach (XNode child in element.Nodes()) Walk(child, style, link);
         if (block) { Flush(); _kind = oldKind; _level = oldLevel; }
+        if (note)
+        {
+            Flush();
+            string? id = (string?)element.Attribute("id") ?? (string?)element.Attribute(XNamespace.Xml + "id");
+            if (!string.IsNullOrEmpty(id) && id.Length <= 1024 && _blocks.Count > noteStart)
+                _footnotes.TryAdd(id, new FootnoteRange(noteStart, _blocks.Count - noteStart));
+        }
+    }
+
+    private static bool HasSemantic(XElement element, bool reference)
+    {
+        foreach (XAttribute attribute in element.Attributes())
+        {
+            if (attribute.Name.LocalName is not ("type" or "role")) continue;
+            ReadOnlySpan<char> rest = attribute.Value.AsSpan();
+            while (!(rest = rest.TrimStart()).IsEmpty)
+            {
+                int count = 0;
+                while (count < rest.Length && !char.IsWhiteSpace(rest[count])) count++;
+                ReadOnlySpan<char> value = rest[..count];
+                if (reference ? value.SequenceEqual("noteref") || value.SequenceEqual("doc-noteref") :
+                    value.SequenceEqual("footnote") || value.SequenceEqual("endnote") || value.SequenceEqual("rearnote") ||
+                    value.SequenceEqual("note") || value.SequenceEqual("doc-footnote") || value.SequenceEqual("doc-endnote")) return true;
+                rest = rest[count..];
+            }
+        }
+        return false;
     }
 
     private void Image(XElement element)

@@ -8,6 +8,7 @@ public partial class App : Application
 {
     private readonly bool _createMainWindow;
     private IDisposable? _stateSession;
+    private OpenRequestChannel? _openRequests;
 
     public App() : this(true) { }
 
@@ -15,7 +16,7 @@ public partial class App : Application
 
     public string? LaunchPath { get; private set; }
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         if (_createMainWindow && e.Args.Length > 0) LaunchPath = e.Args[0];
         DispatcherUnhandledException += (_, args) =>
@@ -32,7 +33,12 @@ public partial class App : Application
             try { _stateSession = store.AcquireSession(); }
             catch (IOException)
             {
-                MessageBox.Show("QuietRead 已在运行，或阅读记录目录暂时无法访问。\n请在现有窗口中打开书籍，或关闭它后再试。",
+                string? path = LaunchPath;
+                try { if (path != null) path = QuietRead.MainWindow.LocalFile(path); }
+                catch (Exception exception) when (exception is EpubException or ArgumentException or IOException or UnauthorizedAccessException)
+                { MessageBox.Show(exception.Message, "QuietRead", MessageBoxButton.OK, MessageBoxImage.Information); Shutdown(1); return; }
+                if (await OpenRequestChannel.TryForwardAsync(store.DirectoryPath, path)) { Shutdown(); return; }
+                MessageBox.Show("现有 QuietRead 窗口暂时没有响应，或阅读记录目录无法访问。\n请稍后重试。",
                     "QuietRead", MessageBoxButton.OK, MessageBoxImage.Information);
                 Shutdown(1); return;
             }
@@ -46,14 +52,17 @@ public partial class App : Application
         base.OnStartup(e);
         if (_createMainWindow)
         {
-            MainWindow = new MainWindow(store!);
+            var window = new MainWindow(store!);
+            MainWindow = window;
             MainWindow.Show();
+            _openRequests = new OpenRequestChannel(store!.DirectoryPath, path =>
+                Dispatcher.BeginInvoke(new Action(async () => await window.ReceiveOpenRequestAsync(path))));
         }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         try { base.OnExit(e); }
-        finally { _stateSession?.Dispose(); }
+        finally { _openRequests?.Dispose(); _stateSession?.Dispose(); }
     }
 }

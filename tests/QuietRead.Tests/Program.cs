@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Compression;
+using System.IO.Pipes;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -13,6 +14,8 @@ if (args.Length == 2 && args[0] == "--state-lock-probe")
     try { using var session = new StateStore(args[1]).AcquireSession(); return 0; }
     catch (IOException) { return 3; }
 }
+if (args.Length == 3 && args[0] == "--open-request-probe")
+    return await OpenRequestChannel.TryForwardAsync(args[1], args[2]) ? 0 : 3;
 
 string root = Path.Combine(Path.GetTempPath(), "QuietRead-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
@@ -568,7 +571,7 @@ Test("State size and unknown schema are safely ignored", () =>
     File.WriteAllText(Path.Combine(directory, "state.json"), new string('x', StateStore.MaxStateBytes + 1));
     var store = new StateStore(directory); Check.Equal(0, store.Load().Books.Count); Check.True(store.LoadFailed);
     File.WriteAllText(Path.Combine(directory, "state.json"), "{\"Schema\":888}");
-    store = new StateStore(directory); Check.Equal(1, store.Load().Schema); Check.True(store.LoadFailed);
+    store = new StateStore(directory); Check.Equal(2, store.Load().Schema); Check.True(store.LoadFailed);
 });
 
 Test("State sessions exclude other processes and can be reacquired after disposal", () =>
@@ -611,7 +614,13 @@ Test("The maximum bounded Unicode history can be saved and reloaded", () =>
             Title = new string('题', 256),
             Author = new string('作', 256),
             Bookmarks = Enumerable.Range(0, 64).Select(_ => new Bookmark
-            { Label = new string('\ue001', 100), ChapterIndex = 4095, BlockIndex = 5999, Fraction = 0.987654321 }).ToList()
+            {
+                Label = new string('\ue001', 100),
+                ChapterIndex = 4095,
+                BlockIndex = 5999,
+                Fraction = 0.987654321,
+                Locator = new ReadingLocator(5999, 1_999_999, new string('\ue002', 48), new string('\ue003', 16), new string('\ue004', 16))
+            }).ToList()
         }).ToList()
     };
     byte[] bytes = StateStore.Snapshot(state);
@@ -620,6 +629,152 @@ Test("The maximum bounded Unicode history can be saved and reloaded", () =>
     AppState loaded = store.Load();
     Check.False(store.LoadFailed); Check.Equal(32, loaded.Books.Count);
     Check.True(loaded.Books.All(b => b.Bookmarks.Count == 64 && b.Bookmarks.All(m => m.Label.Length == 100)));
+});
+
+Test("Logical reading positions survive different artificial paragraph splits", () =>
+{
+    string text = new string('x', 6000) + "unique reading position 你好世界" + new string('y', 6000);
+    ParsedChapter Chapter(int size) => new(Enumerable.Range(0, (text.Length + size - 1) / size)
+        .Select(i => new BookBlock(BlockKind.Paragraph, [new BookInline(text.Substring(i * size, Math.Min(size, text.Length - i * size)))],
+            ContinuesPrevious: i > 0)).ToArray(), new Dictionary<string, int>(), false, text.Length);
+    ReadingLocator locator = TextLocation.Capture(Chapter(4096), 1, 6000 - 4096);
+    var restored = TextLocation.Resolve(Chapter(777), locator)!.Value;
+    Check.Equal(6000, restored.Block * 777 + restored.Offset);
+    Check.True(locator.Quote.StartsWith("unique reading position", StringComparison.Ordinal));
+});
+
+Test("Text quote recovery rejects ambiguous paragraphs and finds a moved unique passage", () =>
+{
+    ParsedChapter Chapter(params string[] paragraphs) => new(paragraphs.Select(t => new BookBlock(BlockKind.Paragraph,
+        [new BookInline(t)])).ToArray(), new Dictionary<string, int>(), false, paragraphs.Sum(t => t.Length));
+    ReadingLocator locator = TextLocation.Capture(Chapter("first", "unique passage here"), 1, 0);
+    Check.Equal(2, TextLocation.Resolve(Chapter("added", "first", "unique passage here"), locator)!.Value.Block);
+    Check.True(TextLocation.Resolve(Chapter("first", "different", "unique passage here", "unique passage here"), locator) == null);
+});
+
+Test("Reading locators preserve surrogate and combining character boundaries", () =>
+{
+    string text = "ab😀e\u0301后文";
+    var chapter = new ParsedChapter([new BookBlock(BlockKind.Paragraph, [new BookInline(text)])], new Dictionary<string, int>(), false, text.Length);
+    Check.Equal(2, TextLocation.Capture(chapter, 0, 3).Offset);
+    Check.Equal(4, TextLocation.Capture(chapter, 0, 5).Offset);
+    Check.True(ReadingLocator.Normalize(new ReadingLocator(-1, 0, "", "", "")) == null);
+    Check.True(ReadingLocator.Normalize(new ReadingLocator(0, 0, new string('a', 49), "", "")) == null);
+});
+
+Test("Capturing a position in a long logical paragraph does not copy the entire paragraph", () =>
+{
+    var blocks = Enumerable.Range(0, 400).Select(i => new BookBlock(BlockKind.Paragraph,
+        [new BookInline(new string('x', 4096))], ContinuesPrevious: i > 0)).ToArray();
+    var chapter = new ParsedChapter(blocks, new Dictionary<string, int>(), false, 400 * 4096);
+    TextLocation.Capture(chapter, 200, 100);
+    long before = GC.GetAllocatedBytesForCurrentThread();
+    for (int i = 0; i < 10; i++) TextLocation.Capture(chapter, 200, 100);
+    Check.True(GC.GetAllocatedBytesForCurrentThread() - before < 200_000, "Position capture copied a long paragraph.");
+});
+
+Test("Schema 1 history migrates and bounded locators round trip in schema 2", () =>
+{
+    string directory = Path.Combine(root, "locator-state"); Directory.CreateDirectory(directory);
+    File.WriteAllText(Path.Combine(directory, "state.json"), "{\"Schema\":1,\"Preferences\":{\"FontSize\":26}}");
+    var store = new StateStore(directory); AppState state = store.Load();
+    Check.False(store.LoadFailed); Check.Equal(2, state.Schema); Check.Equal(26d, state.Preferences.FontSize);
+    var locator = new ReadingLocator(2, 10, "reading", "before", "after");
+    state.Books.Add(new BookHistory
+    {
+        BookKey = new string('a', 64),
+        FilePath = "/book.epub",
+        Locator = locator,
+        Bookmarks = [new Bookmark { Locator = locator }]
+    });
+    store.Save(StateStore.Snapshot(state));
+    Check.Equal(locator, store.Load().Books[0].Bookmarks[0].Locator!);
+});
+
+Test("Footnote semantics preview only the note, never active links or the following chapter text", () =>
+{
+    var entries = Fixtures.Book(["<p>正文<a href='c1.xhtml#n' role='doc-noteref'>1</a></p>",
+        "<aside id='n' role='doc-footnote'><p>注释<strong>内容</strong><a href='c0.xhtml'>返回</a></p></aside><p>NOT_A_NOTE</p>"]);
+    using var book = EpubBook.Open(WriteFixture(entries));
+    LocalLink link = book.ReadChapter(0).Blocks.SelectMany(b => b.Inlines).Single(i => i.Link != null).Link!;
+    Check.True(link.IsNote);
+    FootnotePreview preview = book.ReadFootnote(link)!;
+    Check.Equal("注释内容返回", string.Concat(preview.Blocks.Select(b => b.PlainText)));
+    Check.True(preview.Blocks.SelectMany(b => b.Inlines).All(i => i.Link == null));
+    Check.True(book.ReadFootnote(new LocalLink("OEBPS/c1.xhtml", "missing", true)) == null);
+    Check.True(book.ReadFootnote(new LocalLink("https://remote.invalid", "n", true)) == null);
+    var epub3 = Fixtures.Book(["<p><a xmlns:epub='http://www.idpf.org/2007/ops' epub:type='noteref' href='#n'>1</a></p>" +
+        "<aside xmlns:epub='http://www.idpf.org/2007/ops' epub:type='footnote' id='n'><p>EPUB3 注释</p></aside>"]);
+    using var other = EpubBook.Open(WriteFixture(epub3));
+    LocalLink reference = other.ReadChapter(0).Blocks.SelectMany(b => b.Inlines).Single(i => i.Link != null).Link!;
+    Check.True(reference.IsNote); Check.Equal("EPUB3 注释", other.ReadFootnote(reference)!.Blocks[0].PlainText);
+});
+
+Test("Footnote preview honors character, block and inline limits", () =>
+{
+    using var book = EpubBook.Open(WriteFixture(Fixtures.Book(["<aside id='n' role='doc-footnote'>" +
+        string.Concat(Enumerable.Repeat("<p>" + new string('x', 200) + "</p>", 80)) + "</aside>"])));
+    FootnotePreview preview = book.ReadFootnote(new LocalLink("OEBPS/c0.xhtml", "n"))!;
+    Check.True(preview.Truncated); Check.True(preview.Blocks.Count <= 32);
+    Check.True(preview.Blocks.Sum(b => b.PlainText.Length) <= 4096);
+    Check.True(preview.Blocks.Sum(b => b.Inlines.Count) <= 256);
+});
+
+Test("Search progress counts unique resources and allows cancellation after the first one", () =>
+{
+    var entries = Fixtures.Book(["<p>prefix needle suffix</p>", "<p>next needle</p>"]);
+    entries["OEBPS/content.opf"] = Fixtures.Utf8(Encoding.UTF8.GetString(entries["OEBPS/content.opf"]).Replace("<itemref idref='c0'/>", "<itemref idref='c0'/><itemref idref='c0'/>", StringComparison.Ordinal));
+    using var book = EpubBook.Open(WriteFixture(entries));
+    var values = new List<SearchProgress>();
+    SearchOutcome outcome = book.Search("needle", progress: new ImmediateProgress<SearchProgress>(values.Add));
+    Check.Equal(2, values[^1].Completed); Check.Equal(2, values[^1].Total); Check.Equal(3, values.Count);
+    Check.Equal(7, outcome.Hits[0].Offset);
+    using var cancel = new CancellationTokenSource();
+    Check.Throws<OperationCanceledException>(() => book.Search("missing", cancel.Token,
+        new ImmediateProgress<SearchProgress>(p => { if (p.Completed == 1) cancel.Cancel(); })));
+});
+
+Test("Single-instance channel forwards an EPUB from another process and rejects invalid requests", () =>
+{
+    string directory = Path.Combine(root, "open-channel"), path = Path.Combine(root, "forward.epub");
+    string? received = null;
+    using var arrived = new ManualResetEventSlim();
+    using var channel = new OpenRequestChannel(directory, p => { received = p; arrived.Set(); });
+    var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+    if (string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+        start.ArgumentList.Add(typeof(EpubBook).Assembly.Location.Replace("QuietRead.Core.dll", "QuietRead.Tests.dll", StringComparison.Ordinal));
+    start.ArgumentList.Add("--open-request-probe"); start.ArgumentList.Add(directory); start.ArgumentList.Add(path);
+    // The test assembly is beside the core DLL in the test output directory.
+    using var process = Process.Start(start)!;
+    Check.True(process.WaitForExit(5000), "Forwarding process timed out."); Check.Equal(0, process.ExitCode);
+    Check.True(arrived.Wait(1000)); Check.Equal(path, received!);
+    Check.False(OpenRequestChannel.IsValidPath("relative.epub"));
+    Check.False(OpenRequestChannel.IsValidPath(@"\\unreachable.invalid\share\book.epub"));
+    Check.False(OpenRequestChannel.IsValidPath(path + "\0"));
+    Check.False(OpenRequestChannel.IsValidPath(Path.Combine(root, "script.cmd")));
+});
+
+Test("Oversized pipe messages are rejected before allocation and the listener recovers", () =>
+{
+    string directory = Path.Combine(root, "bad-channel");
+    using var channel = new OpenRequestChannel(directory, _ => { });
+    using (var pipe = new NamedPipeClientStream(".", OpenRequestChannel.PipeName(directory), PipeDirection.InOut,
+        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
+    {
+        pipe.Connect(1000); byte[] header = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(header, int.MaxValue); pipe.Write(header); pipe.Flush();
+        Check.Equal(-1, pipe.ReadByte());
+    }
+    Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
+    foreach (string message in new[] { "{not-json}", "{\"Version\":99}", "{\"Version\":1,\"Path\":\"relative.epub\"}" })
+    {
+        using var pipe = new NamedPipeClientStream(".", OpenRequestChannel.PipeName(directory), PipeDirection.InOut,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        pipe.Connect(1000); byte[] bytes = Encoding.UTF8.GetBytes(message), header = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(header, bytes.Length); pipe.Write(header); pipe.Write(bytes); pipe.Flush();
+        Check.True(pipe.ReadByte() is -1 or 0, "Invalid pipe request was accepted.");
+    }
+    Check.True(OpenRequestChannel.TryForwardAsync(directory, null).GetAwaiter().GetResult());
 });
 
 var benchmarkResults = new List<object>();
@@ -725,6 +880,11 @@ try
 }
 finally { Directory.Delete(root, true); }
 return failed == 0 ? 0 : 1;
+
+sealed class ImmediateProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}
 
 static class Check
 {

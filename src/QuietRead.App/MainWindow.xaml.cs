@@ -53,6 +53,15 @@ public partial class MainWindow : Window
         _saveTimer.Tick += SaveTimer_Tick;
         _appearanceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _appearanceTimer.Tick += (_, _) => { _appearanceTimer.Stop(); ApplyTypography(); ScheduleSave(); };
+        _resizeTimer.Tick += (_, _) =>
+        {
+            _resizeTimer.Stop();
+            if (_closed || _restoring) return;
+            _restoring = true; Reader.UpdateLayout(); RestoreTextPosition(_layoutLocator);
+            Reader.UpdateLayout();
+            _layoutLocator = null; _restoring = false; CapturePosition(); ScheduleSave();
+        };
+        SystemParameters.StaticPropertyChanged += SystemSettingsChanged;
         ReaderPreferences preferences = _state.Preferences;
         FontSizeSlider.Value = preferences.FontSize; LineSlider.Value = preferences.LineSpacing; WidthSlider.Value = preferences.TextWidth;
         FontCombo.SelectedIndex = preferences.Font switch { "Sans" => 1, "Georgia" => 2, _ => 0 };
@@ -89,6 +98,7 @@ public partial class MainWindow : Window
         catch (Exception exception) when (exception is EpubException or ArgumentException or IOException or UnauthorizedAccessException)
         { ShowError(exception.Message); return; }
         Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
+        CloseFootnote(); _resizeTimer.Stop(); _layoutLocator = null; _searchGeneration++; _searching = false;
         _openToken = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         CancellationToken token = _openToken.Token;
         int generation = ++_openGeneration;
@@ -111,6 +121,8 @@ public partial class MainWindow : Window
             _history.LastReadUtc = DateTime.UtcNow;
             _history.Title = _book.Title; _history.Author = _book.Author;
             _chapter = null; _scroll = null; _highlight = "";
+            _back.Clear(); _forward.Clear(); _searchHits = Array.Empty<SearchHit>(); _searchIndex = -1; _searchOrigin = null;
+            SearchProgressBar.Value = 0; SearchPositionText.Text = "—";
             Reader.Document = null; _renderedBlocks.Clear(); _segments = [0]; _segmentIndex = 0;
             PartText.Text = ""; ProgressText.Text = "—";
             SearchList.ItemsSource = null; SearchStatusText.Text = "输入文字，点击「查找」搜索全书。";
@@ -123,7 +135,8 @@ public partial class MainWindow : Window
             RefreshBookmarks();
             WelcomePane.Visibility = Visibility.Collapsed; ReaderPane.Visibility = Visibility.Visible;
             SidebarButton.IsEnabled = true;
-            await NavigateAsync(Math.Clamp(_history.ChapterIndex, 0, _book.Chapters.Count - 1), _history.BlockIndex, _history.Fraction, saveCurrent: false);
+            await NavigateAsync(Math.Clamp(_history.ChapterIndex, 0, _book.Chapters.Count - 1), _history.BlockIndex, _history.Fraction,
+                saveCurrent: false, locator: _history.Locator, addHistory: false);
             ScheduleSave();
         }
         catch (OperationCanceledException) { }
@@ -157,11 +170,13 @@ public partial class MainWindow : Window
         return path;
     }
 
-    internal async Task NavigateAsync(int index, int blockIndex = 0, double fraction = 0, string? fragment = null, bool saveCurrent = true)
+    internal async Task NavigateAsync(int index, int blockIndex = 0, double fraction = 0, string? fragment = null, bool saveCurrent = true,
+        ReadingLocator? locator = null, bool addHistory = true, int characterOffset = 0)
     {
         EpubBook? book = _book;
         if (book == null || index < 0 || index >= book.Chapters.Count || _closed) return;
-        if (saveCurrent) CapturePosition();
+        NavigationPosition? origin = saveCurrent ? CurrentPosition() : null;
+        CloseFootnote(); _resizeTimer.Stop(); _layoutLocator = null;
         Cancel(ref _readToken);
         _readToken = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         CancellationToken token = _readToken.Token;
@@ -177,12 +192,15 @@ public partial class MainWindow : Window
                 ParsedChapter chapter = currentChapter ?? book.ReadChapter(index, token);
                 int[] segments = currentSegments ?? DocumentRenderer.BuildSegments(chapter);
                 int target = Math.Clamp(blockIndex, 0, chapter.Blocks.Count - 1);
+                var location = TextLocation.Resolve(chapter, locator, token);
+                int offset = characterOffset;
+                if (location != null) { target = location.Value.Block; offset = location.Value.Offset; }
                 if (!string.IsNullOrEmpty(fragment) && chapter.Anchors.TryGetValue(fragment, out int anchor)) target = anchor;
                 int part = Array.BinarySearch(segments, target);
                 if (part < 0) part = ~part - 1;
                 int start = segments[part], end = part + 1 < segments.Length ? segments[part + 1] : chapter.Blocks.Count;
                 PreparedImages images = DocumentRenderer.PrepareImages(book, chapter, start, end, token);
-                return (chapter, segments, part, start, end, target, images);
+                return (chapter, segments, part, start, end, target, offset, precise: location != null || characterOffset > 0, images);
             }, token);
             if (_closed || token.IsCancellationRequested || generation != _readGeneration || book != _book) return;
             _restoring = true;
@@ -197,14 +215,20 @@ public partial class MainWindow : Window
                 if (_closed || generation != _readGeneration || book != _book) return;
                 Reader.UpdateLayout();
                 _scroll = FindVisual<ScrollViewer>(Reader);
-                if ((fragment != null || fraction == 0 && slice.target != slice.start) && _renderedBlocks.TryGetValue(slice.target, out Block? target))
+                if (slice.precise && _renderedBlocks.TryGetValue(slice.target, out Block? preciseBlock) &&
+                    DocumentPosition.Offset(Reader.Document, preciseBlock, slice.offset) is double textOffset)
+                    _scroll?.ScrollToVerticalOffset(textOffset);
+                else if ((fragment != null || fraction == 0 && slice.target != slice.start) && _renderedBlocks.TryGetValue(slice.target, out Block? target))
                     target.BringIntoView();
                 else _scroll?.ScrollToVerticalOffset(Math.Clamp(fraction, 0, 1) * (_scroll?.ScrollableHeight ?? 0));
+                Reader.UpdateLayout();
                 _restoring = false;
                 UpdateProgress(); CapturePosition();
                 Reader.Focus();
             }, DispatcherPriority.Loaded, token);
             if (_closed || token.IsCancellationRequested || generation != _readGeneration || book != _book) return;
+            if (addHistory) PushHistory(origin);
+            UpdateButtons(); Announce(ChapterTitleText);
             StatusText.Text = slice.images.Skipped > 0 ? $"本段有 {slice.images.Skipped} 张图片未显示。" :
                 book.ExternalResourcesSkipped > 0 ? "已跳过书内外部资源。" : "阅读位置自动保存";
         }
@@ -234,19 +258,15 @@ public partial class MainWindow : Window
         if (TocList.SelectedItem is TocRow row) await NavigateAsync(row.Item.ChapterIndex, fragment: row.Item.Fragment);
     }
 
-    private async void FollowLink(LocalLink target)
-    {
-        if (_book == null || _busy) return;
-        int chapter = _book.FindChapter(target.Path);
-        if (chapter >= 0) await NavigateAsync(chapter, fragment: target.Fragment);
-    }
+    private async void FollowLink(LocalLink target) => await FollowLinkAsync(target);
 
     private void Reader_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         if (!_ready || _restoring || _chapter == null) return;
         _scroll ??= FindVisual<ScrollViewer>(Reader);
         UpdateProgress();
-        if (Math.Abs(e.VerticalChange) > 0.1) { CapturePosition(); ScheduleSave(); }
+        if (Math.Abs(e.VerticalChange) > 0.1 && e.ExtentHeightChange == 0 && e.ViewportHeightChange == 0 && !_resizeTimer.IsEnabled)
+        { CapturePosition(); ScheduleSave(); }
     }
 
     private double ScrollFraction => _scroll == null || _scroll.ScrollableHeight <= 0 ? 0 :
@@ -258,6 +278,11 @@ public partial class MainWindow : Window
         _history.ChapterIndex = _chapterIndex;
         _history.BlockIndex = _segments[_segmentIndex];
         _history.Fraction = ScrollFraction;
+        if (Reader.Document != null && _renderedBlocks.Count > 0)
+        {
+            var position = DocumentPosition.Capture(Reader.Document, _renderedBlocks, _scroll?.VerticalOffset ?? 0);
+            _history.Locator = TextLocation.Capture(_chapter, position.Block, position.Offset);
+        }
         _history.LastReadUtc = DateTime.UtcNow;
     }
 
@@ -288,9 +313,9 @@ public partial class MainWindow : Window
         }
         int part = _segmentIndex + direction;
         if (part >= 0 && part < _segments.Length)
-            await NavigateAsync(_chapterIndex, _segments[part], direction > 0 ? 0 : 1);
+            await NavigateAsync(_chapterIndex, _segments[part], direction > 0 ? 0 : 1, addHistory: false);
         else if (_chapterIndex + direction >= 0 && _chapterIndex + direction < _book.Chapters.Count)
-            await NavigateAsync(_chapterIndex + direction, direction > 0 ? 0 : int.MaxValue, direction > 0 ? 0 : 1);
+            await NavigateAsync(_chapterIndex + direction, direction > 0 ? 0 : int.MaxValue, direction > 0 ? 0 : 1, addHistory: false);
         else StatusText.Text = direction > 0 ? "已到书末。" : "已到书首。";
     }
 
@@ -309,6 +334,7 @@ public partial class MainWindow : Window
             ChapterIndex = _chapterIndex,
             BlockIndex = _history.BlockIndex,
             Fraction = ScrollFraction,
+            Locator = _history.Locator,
             Label = _book.Chapters[_chapterIndex].Title + (_segments.Length > 1 ? $" · 第 {_segmentIndex + 1} 部分" : "")
         });
         RefreshBookmarks(); ScheduleSave(); StatusText.Text = "已添加书签。";
@@ -324,7 +350,7 @@ public partial class MainWindow : Window
     {
         if (!_ready || _busy) return;
         if (BookmarksList.SelectedItem is BookmarkRow row)
-        { await NavigateAsync(row.Item.ChapterIndex, row.Item.BlockIndex, row.Item.Fraction); BookmarksList.SelectedItem = null; }
+        { await NavigateAsync(row.Item.ChapterIndex, row.Item.BlockIndex, row.Item.Fraction, locator: row.Item.Locator); BookmarksList.SelectedItem = null; }
     }
 
     private void DeleteBookmark_Click(object sender, RoutedEventArgs e)
@@ -343,26 +369,39 @@ public partial class MainWindow : Window
         Cancel(ref _searchToken);
         _searchToken = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         CancellationToken token = _searchToken.Token;
+        int generation = ++_searchGeneration;
+        _searchOrigin = CurrentPosition(); _searching = true;
+        _searchHits = Array.Empty<SearchHit>(); _searchIndex = -1; SearchPositionText.Text = "—";
+        SearchProgressBar.Value = 0; UpdateButtons();
+        var progress = new Progress<SearchProgress>(value =>
+        {
+            if (_closed || token.IsCancellationRequested || generation != _searchGeneration || book != _book || !_searching) return;
+            SearchProgressBar.Value = 100d * value.Completed / Math.Max(1, value.Total);
+            SearchStatusText.Text = $"已搜索 {value.Completed}/{value.Total} 个正文资源…";
+        });
         SearchStatusText.Text = "正在搜索全书…"; SearchList.ItemsSource = null;
         try
         {
-            SearchOutcome outcome = await RunBoundedWorkAsync(_searchWork, () => book.Search(query, token), token);
+            SearchOutcome outcome = await RunBoundedWorkAsync(_searchWork, () => book.Search(query, token, progress), token);
             if (_closed || token.IsCancellationRequested || book != _book) return;
             _highlight = query;
             SearchList.ItemsSource = outcome.Hits;
+            _searchHits = outcome.Hits; SearchProgressBar.Value = 100;
             SearchStatusText.Text = outcome.LimitReached ? "显示前 200 个匹配段落，可缩小关键词范围。" : $"找到 {outcome.Hits.Count} 个匹配段落。";
             if (outcome.FailedChapters > 0) SearchStatusText.Text += $" {outcome.FailedChapters} 个章节未能解析。";
+            Announce(SearchStatusText);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or ArgumentException)
         { if (!_closed && !token.IsCancellationRequested) SearchStatusText.Text = "搜索无法完成。"; }
+        finally { if (generation == _searchGeneration) { _searching = false; UpdateButtons(); } }
     }
 
     private async void Search_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_ready || _busy) return;
         if (SearchList.SelectedItem is SearchHit hit)
-        { await NavigateAsync(hit.ChapterIndex, hit.BlockIndex); SearchList.SelectedItem = null; }
+        { await GoToSearchHitAsync(hit, _searchHits.ToList().IndexOf(hit)); SearchList.SelectedItem = null; }
     }
 
     private void Sidebar_Click(object sender, RoutedEventArgs e)
@@ -397,10 +436,10 @@ public partial class MainWindow : Window
     private void ApplyTypography()
     {
         ReaderPreferences p = _state.Preferences;
+        ReadingLocator? locator = !_restoring ? CurrentPosition()?.Locator : null;
         FontSizeLabel.Text = p.FontSize.ToString("0", CultureInfo.InvariantCulture);
         Reader.MaxWidth = p.TextWidth + 64;
         if (Reader.Document == null || _chapter == null) return;
-        double fraction = ScrollFraction;
         Reader.Document.FontFamily = DocumentRenderer.Font(p.Font);
         Reader.Document.FontSize = p.FontSize;
         Reader.Document.LineHeight = p.FontSize * p.LineSpacing;
@@ -418,7 +457,8 @@ public partial class MainWindow : Window
         {
             _restoring = true;
             Reader.UpdateLayout();
-            _scroll?.ScrollToVerticalOffset(fraction * (_scroll?.ScrollableHeight ?? 0));
+            RestoreTextPosition(locator);
+            Reader.UpdateLayout();
             _restoring = false;
             UpdateProgress(); CapturePosition();
         }
@@ -429,13 +469,21 @@ public partial class MainWindow : Window
 
     private void ApplyTheme(string theme)
     {
-        string[] names = ["AppBrush", "PanelBrush", "ReaderBrush", "TextBrush", "SecondaryBrush", "BorderBrush", "AccentBrush", "AccentSoftBrush", "HighlightBrush", "CodeBrush", "PrimaryTextBrush"];
+        string[] names = ["AppBrush", "PanelBrush", "ReaderBrush", "TextBrush", "SecondaryBrush", "BorderBrush", "AccentBrush", "AccentSoftBrush", "HighlightBrush", "CodeBrush", "PrimaryTextBrush", "HighlightTextBrush"];
         string[] colors = theme switch
         {
-            "Dark" => ["#181E1A", "#202823", "#1C231F", "#DBE5DA", "#98AA9A", "#344136", "#8FCDA8", "#2C4233", "#5C542B", "#29362C", "#183625"],
-            "Sepia" => ["#EEE8DA", "#F7F1E5", "#F5EFDF", "#403A2E", "#817763", "#DFD5C1", "#726337", "#EAE1C8", "#EBD796", "#EDE4D1", "#FFFFFF"],
-            _ => ["#F4F6F3", "#FFFFFF", "#FDFCF9", "#25352D", "#68766D", "#E0E6DF", "#28664B", "#E8F0E8", "#F8E69F", "#EDF1EC", "#FFFFFF"]
+            "Dark" => ["#181E1A", "#202823", "#1C231F", "#DBE5DA", "#98AA9A", "#344136", "#8FCDA8", "#2C4233", "#5C542B", "#29362C", "#183625", "#DBE5DA"],
+            "Sepia" => ["#EEE8DA", "#F7F1E5", "#F5EFDF", "#403A2E", "#817763", "#DFD5C1", "#726337", "#EAE1C8", "#EBD796", "#EDE4D1", "#FFFFFF", "#403A2E"],
+            _ => ["#F4F6F3", "#FFFFFF", "#FDFCF9", "#25352D", "#68766D", "#E0E6DF", "#28664B", "#E8F0E8", "#F8E69F", "#EDF1EC", "#FFFFFF", "#25352D"]
         };
+        if (SystemParameters.HighContrast)
+        {
+            Color[] systemColors = [SystemColors.WindowColor, SystemColors.WindowColor, SystemColors.WindowColor,
+                SystemColors.WindowTextColor, SystemColors.WindowTextColor, SystemColors.WindowTextColor,
+                SystemColors.HotTrackColor, SystemColors.WindowColor, SystemColors.HighlightColor,
+                SystemColors.WindowColor, SystemColors.HighlightTextColor, SystemColors.HighlightTextColor];
+            colors = systemColors.Select(c => c.ToString()).ToArray();
+        }
         for (int i = 0; i < names.Length; i++)
         {
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
@@ -488,6 +536,9 @@ public partial class MainWindow : Window
     private void Home_Click(object sender, RoutedEventArgs e)
     {
         CapturePosition(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
+        CloseFootnote(); _resizeTimer.Stop(); _layoutLocator = null;
+        _back.Clear(); _forward.Clear(); _searchHits = Array.Empty<SearchHit>(); _searchIndex = -1; _searchOrigin = null;
+        _searchGeneration++; _searching = false; SearchProgressBar.Value = 0; SearchPositionText.Text = "—";
         _openGeneration++; _readGeneration++; _busyGeneration++;
         _restoring = false;
         EpubBook? book = _book;
@@ -550,6 +601,11 @@ public partial class MainWindow : Window
         bool active = _book != null && _chapter != null && !_busy;
         TocList.IsEnabled = !_busy; BookmarksList.IsEnabled = !_busy; SearchList.IsEnabled = !_busy;
         BookmarkButton.IsEnabled = active; SearchButton.IsEnabled = _book != null && !_busy;
+        BackButton.IsEnabled = active && _back.Count > 0; ForwardButton.IsEnabled = active && _forward.Count > 0;
+        SearchCancelButton.IsEnabled = _searching;
+        SearchPreviousButton.IsEnabled = active && _searchIndex > 0;
+        SearchNextButton.IsEnabled = active && _searchIndex + 1 < _searchHits.Count;
+        SearchReturnButton.IsEnabled = active && _searchOrigin != null;
         PreviousButton.IsEnabled = active && (_chapterIndex > 0 || _segmentIndex > 0 || (_scroll?.VerticalOffset ?? 0) > 2);
         NextButton.IsEnabled = active && (_chapterIndex + 1 < _book!.Chapters.Count || _segmentIndex + 1 < _segments.Length ||
             (_scroll != null && _scroll.VerticalOffset < _scroll.ScrollableHeight - 2));
@@ -572,6 +628,7 @@ public partial class MainWindow : Window
     {
         if (_closed) return;
         CapturePosition(); _closed = true; _saveTimer.Stop(); _appearanceTimer.Stop();
+        CloseFootnote(); _resizeTimer.Stop(); SystemParameters.StaticPropertyChanged -= SystemSettingsChanged;
         _lifetime.Cancel(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         try { _store.Save(StateStore.Snapshot(_state), ++_saveRevision); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }

@@ -3,7 +3,7 @@
         Width="1180" Height="840" MinWidth="700" MinHeight="460" WindowStartupLocation="CenterScreen"
         Background="{DynamicResource AppBrush}" Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI, Microsoft YaHei UI" AllowDrop="True" Loaded="Window_Loaded"
-        DragOver="Window_DragOver" Drop="Window_Drop" Closing="Window_Closing">
+        DragOver="Window_DragOver" Drop="Window_Drop" Closing="Window_Closing" PreviewKeyDown="Window_PreviewKeyDown">
   <Grid Background="{DynamicResource AppBrush}">
     <Grid.RowDefinitions><RowDefinition Height="64" /><RowDefinition Height="3" /><RowDefinition Height="*" /><RowDefinition Height="48" /></Grid.RowDefinitions>
     <Border Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
@@ -58,13 +58,23 @@
               </Grid>
             </TabItem>
             <TabItem Header="查找">
-              <Grid Margin="10,12"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <Grid Margin="10,12"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                   <TextBox x:Name="SearchBox" MaxLength="128" AutomationProperties.Name="全文搜索关键词" />
                   <Button x:Name="SearchButton" Grid.Column="1" Content="查找" Click="Search_Click" Padding="8,6" IsEnabled="False" />
+                  <Button x:Name="SearchCancelButton" Grid.Column="2" Content="停止" Click="CancelSearch_Click" Padding="6,6" IsEnabled="False" AutomationProperties.Name="停止全文搜索" />
                 </Grid>
-                <TextBlock x:Name="SearchStatusText" Grid.Row="1" Text="输入文字，点击「查找」搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" />
-                <ListBox x:Name="SearchList" Grid.Row="2" Padding="0" SelectionChanged="Search_SelectionChanged" AutomationProperties.Name="全文搜索结果">
+                <TextBlock x:Name="SearchStatusText" Grid.Row="1" Text="输入文字，点击「查找」搜索全书。" FontSize="11" TextWrapping="Wrap" Margin="4,10" Foreground="{DynamicResource SecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+                <ProgressBar x:Name="SearchProgressBar" Grid.Row="2" Minimum="0" Maximum="100" Height="4" Margin="4,0,4,8" Foreground="{DynamicResource AccentBrush}" AutomationProperties.Name="全文搜索进度" />
+                <StackPanel Grid.Row="3" Margin="0,0,0,8">
+                  <StackPanel Orientation="Horizontal">
+                    <Button x:Name="SearchPreviousButton" Content="上一个" Click="SearchPrevious_Click" IsEnabled="False" FontSize="11" Padding="6,4" AutomationProperties.Name="上一个搜索结果" />
+                    <TextBlock x:Name="SearchPositionText" Text="—" VerticalAlignment="Center" MinWidth="46" TextAlignment="Center" FontSize="11" />
+                    <Button x:Name="SearchNextButton" Content="下一个" Click="SearchNext_Click" IsEnabled="False" FontSize="11" Padding="6,4" AutomationProperties.Name="下一个搜索结果" />
+                  </StackPanel>
+                  <Button x:Name="SearchReturnButton" Content="返回搜索前位置" Click="SearchReturn_Click" IsEnabled="False" HorizontalAlignment="Left" FontSize="11" Padding="6,4" />
+                </StackPanel>
+                <ListBox x:Name="SearchList" Grid.Row="4" Padding="0" SelectionChanged="Search_SelectionChanged" AutomationProperties.Name="全文搜索结果">
                   <ListBox.ItemTemplate><DataTemplate>
                     <StackPanel><TextBlock Text="{Binding ChapterTitle}" FontSize="11" Foreground="{DynamicResource AccentBrush}" />
                       <TextBlock Text="{Binding Snippet}" FontSize="13" TextWrapping="Wrap" Margin="0,5,0,0" /></StackPanel>
@@ -80,10 +90,10 @@
         <Grid>
           <Grid x:Name="ReaderPane" Visibility="Collapsed">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <TextBlock x:Name="ChapterTitleText" Margin="32,20,32,8" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" TextTrimming="CharacterEllipsis" />
+            <TextBlock x:Name="ChapterTitleText" Margin="32,20,32,8" FontSize="11" Foreground="{DynamicResource SecondaryBrush}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
             <FlowDocumentScrollViewer x:Name="Reader" Grid.Row="1" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0" MaxWidth="880" HorizontalAlignment="Stretch"
-              IsSelectionEnabled="True" ScrollViewer.ScrollChanged="Reader_ScrollChanged" AutomationProperties.Name="书籍正文" />
+              IsSelectionEnabled="True" ScrollViewer.ScrollChanged="Reader_ScrollChanged" SizeChanged="Reader_SizeChanged" AutomationProperties.Name="书籍正文" />
           </Grid>
           <ScrollViewer x:Name="WelcomePane" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel MaxWidth="480" Margin="32,78,32,40" HorizontalAlignment="Stretch">
@@ -111,10 +121,35 @@
           </ScrollViewer>
         </Grid>
       </Border>
+      <Grid x:Name="FootnoteOverlay" Grid.ColumnSpan="2" Background="{DynamicResource AppBrush}" Visibility="Collapsed"
+            KeyboardNavigation.TabNavigation="Cycle" AutomationProperties.Name="脚注预览">
+        <Border MaxWidth="620" MaxHeight="520" Margin="20" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8">
+          <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBlock Text="注释" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+              <Button x:Name="FootnoteCloseButton" Grid.Column="1" Content="关闭" Click="FootnoteClose_Click" AutomationProperties.Name="关闭脚注并返回正文" />
+            </Grid>
+            <FlowDocumentScrollViewer x:Name="FootnoteReader" Grid.Row="1" MinHeight="80" IsToolBarVisible="False" IsSelectionEnabled="True"
+              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" BorderThickness="0" Background="{DynamicResource ReaderBrush}"
+              AutomationProperties.Name="脚注正文" Margin="0,12" />
+            <StackPanel Grid.Row="2">
+              <TextBlock x:Name="FootnoteHint" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryBrush}" FontSize="12" AutomationProperties.LiveSetting="Polite" />
+              <Button x:Name="FootnoteJumpButton" Content="跳转到原文" Click="FootnoteJump_Click" HorizontalAlignment="Left" Margin="0,8,0,0" />
+            </StackPanel>
+          </Grid>
+        </Border>
+      </Grid>
     </Grid>
     <Border Grid.Row="3" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
       <Grid Margin="18,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-        <TextBlock x:Name="StatusText" Text="就绪" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" Margin="0,0,18,0" />
+        <Grid Margin="0,0,10,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Button x:Name="BackButton" Content="↶" Click="Back_Click" IsEnabled="False" Padding="7,4" AutomationProperties.Name="返回上次跳转位置" ToolTip="返回上次跳转位置" />
+            <Button x:Name="ForwardButton" Content="↷" Click="Forward_Click" IsEnabled="False" Padding="7,4" AutomationProperties.Name="前进到下一跳转位置" ToolTip="前进到下一跳转位置" />
+          </StackPanel>
+          <TextBlock x:Name="StatusText" Grid.Column="1" Text="就绪" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryBrush}" Margin="6,0,0,0" AutomationProperties.LiveSetting="Polite" />
+        </Grid>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="PreviousButton" Content="← 上一页" Click="Previous_Click" IsEnabled="False" FontSize="12" ToolTip="上一屏；到达段首后继续上一段或上一章" />
           <TextBlock x:Name="ProgressText" Text="—" VerticalAlignment="Center" FontSize="12" MinWidth="140" TextAlignment="Center" Margin="12,0" />
