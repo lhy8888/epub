@@ -43,7 +43,7 @@ internal static class P1Tests
         Test("Legacy and content identities merge their bookmarks without discarding either record", () =>
         {
             var s = Store(); BookData d = Open(s, 1); d.History.Bookmarks.Add(new Bookmark { Label = "new", ChapterIndex = 1 }); s.SaveBook(BookDataRules.Snapshot(d));
-            s.MigrateLegacy([new BookHistory { BookKey = Id(6000), FilePath = "old.epub", Bookmarks = [new Bookmark { Label = "old", ChapterIndex = 2 }] }]);
+            s.MigrateLegacy([new BookHistory { BookKey = Id(6000), FilePath = "book.epub", Bookmarks = [new Bookmark { Label = "old", ChapterIndex = 2 }] }]);
             Check.Equal(2, s.OpenBook(Id(1), Id(6000), "renamed.epub", "Book", "Author").History.Bookmarks.Count);
             Check.Equal(1, s.Entries().Count);
         });

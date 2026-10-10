@@ -50,7 +50,7 @@ public sealed class LibraryStore
                 foreach (BookHistory h in histories)
                 {
                     h.BookKey = h.BookKey.ToUpperInvariant();
-                    if (entries.Any(e => e.BookId == h.BookKey || e.FilePath == h.FilePath)) continue;
+                    if (entries.Any(e => e.BookId == h.BookKey)) continue;
                     var data = new BookData { BookId = h.BookKey, History = h };
                     byte[] bytes = BookDataRules.Snapshot(data);
                     string generation = Stage(data.BookId, bytes, staged);
