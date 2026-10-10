@@ -77,6 +77,7 @@ public partial class MainWindow
                     new PreparedImages(new Dictionary<string, ImageSource>(), 0), _state.Preferences, "", _ => { }, out _);
                 FootnoteHint.Text = preview.Truncated ? "注释过长或含图片，点击「跳转到原文」查看。" : "关闭注释后继续正文阅读。";
                 FootnoteOverlay.Visibility = Visibility.Visible;
+                RefreshDocumentAutomation(FootnoteReader);
                 FootnoteCloseButton.Focus(); Announce(FootnoteHint);
                 return;
             }
@@ -150,6 +151,13 @@ public partial class MainWindow
     private static void Announce(UIElement element) =>
         (UIElementAutomationPeer.FromElement(element) ?? UIElementAutomationPeer.CreatePeerForElement(element))?
             .RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+
+    private static void RefreshDocumentAutomation(FlowDocumentScrollViewer viewer)
+    {
+        // The native viewer caches its document child. In-process providers may
+        // otherwise retain the retired chapter until an external UIA tree walk.
+        UIElementAutomationPeer.FromElement(viewer)?.ResetChildrenCache();
+    }
 
     private void SystemSettingsChanged(object? sender, PropertyChangedEventArgs e)
     {

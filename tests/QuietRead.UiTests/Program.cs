@@ -278,6 +278,11 @@ internal static class Program
                         ReadingLocator locator = reading.CaptureReadingLocator()!;
                         Require(locator.Paragraph > 0 && locator.Quote.Length > 10, "Position did not capture visible text.");
                         reading.BookmarkButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        double originalOffset = scroll.VerticalOffset;
+                        scroll.ScrollToVerticalOffset(originalOffset + scroll.ScrollableHeight * 0.01); await Idle(reading);
+                        reading.BookmarkButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        Require(reading.BookmarksList.Items.Count == 2, "Distinct text positions within 3% were treated as duplicate bookmarks.");
+                        scroll.ScrollToVerticalOffset(originalOffset); await Idle(reading);
                         reading.FontSizeSlider.Value = 32; reading.WidthSlider.Value = 560;
                         await Task.Delay(250); await Idle(reading);
                         RequireVisible(reading.Reader, locator.Quote);
@@ -319,6 +324,9 @@ internal static class Program
                     });
                     await Check("Search reports completion, navigates matches and cancellation prevents stale results", async () =>
                     {
+                        ScrollViewer scroll = Visuals<ScrollViewer>(reading.Reader).First();
+                        scroll.ScrollToVerticalOffset(scroll.ScrollableHeight * 0.35); await Idle(reading);
+                        ReadingLocator origin = reading.CaptureReadingLocator()!;
                         reading.SearchBox.Text = "Unique passage"; await reading.SearchAsync(); await Idle(reading);
                         Require(reading.SearchProgressBar.Value == 100 && reading.SearchList.Items.Count == 140, "Search progress/results are incomplete.");
                         await reading.MoveSearchAsync(1);
@@ -327,6 +335,9 @@ internal static class Program
                         Require(reading.SearchPositionText.Text.StartsWith("2 /", StringComparison.Ordinal), "Next search result was not selected.");
                         await reading.MoveSearchAsync(-1);
                         Require(reading.SearchPositionText.Text.StartsWith("1 /", StringComparison.Ordinal), "Previous search result was not selected.");
+                        reading.SearchReturnButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        await WaitUntil(() => reading.Reader.IsEnabled); await Idle(reading);
+                        RequireVisible(reading.Reader, origin.Quote);
                         reading.SearchBox.Text = "reading"; Task retired = reading.SearchAsync(); reading.StopSearch();
                         reading.SearchBox.Text = "注释内容"; await reading.SearchAsync(); await retired; await Idle(reading);
                         Require(reading.SearchList.Items.Count == 1 && reading.SearchStatusText.Text.Contains("找到 1", StringComparison.Ordinal), "Cancelled search overwrote the newer one.");
@@ -432,7 +443,9 @@ internal static class Program
 
     private static void RequireVisible(FlowDocumentScrollViewer viewer, string text)
     {
-        ITextRangeProvider[] visible = TextProvider(viewer).GetVisibleRanges();
+        ITextProvider provider = TextProvider(viewer);
+        Require(provider.DocumentRange.FindText(text, false, false) != null, "The document automation provider retained a retired chapter.");
+        ITextRangeProvider[] visible = provider.GetVisibleRanges();
         if (visible.Any(range => range.FindText(text, false, false)?.GetBoundingRectangles().Length >= 4)) return;
         ScrollViewer scroll = Visuals<ScrollViewer>(viewer).First();
         ReadingLocator? current = (Window.GetWindow(viewer) as MainWindow)?.CaptureReadingLocator();

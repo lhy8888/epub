@@ -223,6 +223,7 @@ public partial class MainWindow : Window
                 else _scroll?.ScrollToVerticalOffset(Math.Clamp(fraction, 0, 1) * (_scroll?.ScrollableHeight ?? 0));
                 Reader.UpdateLayout();
                 _restoring = false;
+                RefreshDocumentAutomation(Reader);
                 UpdateProgress(); CapturePosition();
                 Reader.Focus();
             }, DispatcherPriority.Loaded, token);
@@ -327,7 +328,9 @@ public partial class MainWindow : Window
         if (_history == null || _book == null || _chapter == null || _busy) return;
         CapturePosition();
         if (_history.Bookmarks.Count >= 64) { StatusText.Text = "每本书最多保存 64 个书签，请先删除部分书签。"; return; }
-        if (_history.Bookmarks.Any(x => x.ChapterIndex == _chapterIndex && x.BlockIndex == _history.BlockIndex && Math.Abs(x.Fraction - ScrollFraction) < 0.03))
+        if (_history.Bookmarks.Any(x => x.ChapterIndex == _chapterIndex &&
+            (x.Locator is { } saved && _history.Locator is { } current ? saved.Paragraph == current.Paragraph && saved.Offset == current.Offset :
+                x.BlockIndex == _history.BlockIndex && Math.Abs(x.Fraction - ScrollFraction) < 0.03)))
         { StatusText.Text = "这个位置已有书签。"; return; }
         _history.Bookmarks.Add(new Bookmark
         {
