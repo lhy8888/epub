@@ -4,7 +4,7 @@
     <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion>23</SupportedOSPlatformVersion>
     <ApplicationId>io.github.lhy8888.quietread</ApplicationId>
-    <ApplicationTitle>QuietRead</ApplicationTitle><ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationTitle>QuietRead</ApplicationTitle><ApplicationVersion>1000000</ApplicationVersion><ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
     <AndroidPackageFormats>apk</AndroidPackageFormats><AndroidEnableProfiledAot>false</AndroidEnableProfiledAot><RunAOTCompilation>false</RunAOTCompilation>
     <PublishTrimmed>false</PublishTrimmed><JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>

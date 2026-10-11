@@ -3,10 +3,10 @@ name: Build and checks
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -36,6 +36,8 @@ jobs:
         run: python tools/check_repository.py
       - name: Check Chinese and English interface text coverage
         run: python tools/check_localization.py
+      - name: Check release version, attachment integrity and draft publication guards
+        run: python tools/test_release_platforms.py
       - name: Restore locked dependencies and audit all severities
         run: dotnet restore QuietRead.sln --locked-mode
       - name: Verify C# formatting
@@ -100,15 +102,7 @@ jobs:
         run: dotnet run --project tests/QuietRead.UiTests --configuration Release --no-restore -- samples/QuietRead-Guide.epub artifacts/ui-tests.json artifacts/windows-smoke.png
       - name: Build and verify Windows x64 portable ZIP
         shell: pwsh
-        env:
-          BUILD_REF: ${{ github.ref }}
-          BUILD_TAG: ${{ github.ref_name }}
-        run: |
-          if ($env:BUILD_REF.StartsWith('refs/tags/')) {
-            ./tools/Build.ps1 -SkipTests -Tag $env:BUILD_TAG
-          } else {
-            ./tools/Build.ps1 -SkipTests
-          }
+        run: ./tools/Build.ps1 -SkipTests
       - name: Start and close the actual portable executable with its sample
         shell: pwsh
         run: ./tools/Smoke-Published.ps1
@@ -150,28 +144,3 @@ jobs:
           test "$QUALITY" = success
           test "$CORE" = success
           test "$WINDOWS" = success
-
-  release:
-    name: Publish version tag to GitHub Releases
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: QuietRead-Windows-x64
-          path: artifacts
-      - name: Verify archive checksum
-        working-directory: artifacts
-        run: sha256sum --check *.zip.sha256
-      - name: Publish the checked portable build
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/*.zip.sha256 --verify-tag --title "QuietRead $RELEASE_TAG" --notes-file docs/RELEASE-NOTES.md

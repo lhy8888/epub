@@ -7,6 +7,7 @@ import struct
 import sys
 import tarfile
 import zipfile
+from release_platforms import project_version
 
 
 def checksum(path):
@@ -18,8 +19,9 @@ def checksum(path):
 def main():
     kind, directory = sys.argv[1:]
     root = Path(directory)
+    version = project_version()
     if kind == "android":
-        apks = list(root.glob("*-Signed.apk"))
+        apks = sorted(set(root.glob("*-Signed.apk")) | set(root.glob("QuietRead-*-Android-*.apk")))
         assert apks, "No signed development APK"
         for apk in apks:
             with zipfile.ZipFile(apk) as package:
@@ -50,6 +52,12 @@ def main():
             permissions = subprocess.check_output([str(candidates[-1]), "dump", "permissions", str(apk)], text=True)
             assert "android.permission.INTERNET" not in permissions, "Offline reader must not request Internet permission"
             assert "MANAGE_EXTERNAL_STORAGE" not in permissions, "Use system document picker"
+            badging = subprocess.check_output([str(candidates[-1]), "dump", "badging", str(apk)], text=True)
+            assert "versionName='" + version + "'" in badging, "APK version differs from project version"
+            renamed = root / ("QuietRead-" + version + "-Android-arm64-x64-development.apk")
+            assert not renamed.exists() or renamed == apk, "Duplicate Android release output"
+            apk.rename(renamed)
+            apk = renamed
             checksum(apk)
     elif kind == "ios":
         for flavor in ("simulator", "device"):
@@ -58,8 +66,9 @@ def main():
             app = apps[0]
             with (app / "Info.plist").open("rb") as stream: info = plistlib.load(stream)
             assert info["CFBundleIdentifier"] == "io.github.lhy8888.quietread"
+            assert info["CFBundleShortVersionString"] == version, "iOS version differs from project version"
             assert (app / info["CFBundleExecutable"]).is_file(), "Missing iOS executable"
-            output = root / ("QuietRead-ios-" + flavor + ".tar.gz")
+            output = root / ("QuietRead-" + version + "-iOS-" + flavor + "-unsigned.tar.gz")
             with tarfile.open(output, "w:gz") as archive: archive.add(app, arcname=app.name)
             checksum(output)
     else:

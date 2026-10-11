@@ -5,6 +5,7 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -92,7 +93,7 @@ jobs:
         with:
           name: QuietRead-Android-development
           path: |
-            artifacts/android/*-Signed.apk
+            artifacts/android/QuietRead-*-Android-*.apk
             artifacts/android/*.sha256
           if-no-files-found: error
           retention-days: 30
@@ -131,8 +132,8 @@ jobs:
         with:
           name: QuietRead-iOS-builds
           path: |
-            artifacts/QuietRead-ios-*.tar.gz
-            artifacts/QuietRead-ios-*.sha256
+            artifacts/QuietRead-*-iOS-*.tar.gz
+            artifacts/QuietRead-*-iOS-*.sha256
             artifacts/ios-*.log
           if-no-files-found: error
           retention-days: 30

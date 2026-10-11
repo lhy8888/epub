@@ -4,7 +4,7 @@
     <RuntimeIdentifiers>ios-arm64;iossimulator-arm64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>io.github.lhy8888.quietread</ApplicationId>
-    <ApplicationTitle>QuietRead</ApplicationTitle><ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationTitle>QuietRead</ApplicationTitle><ApplicationVersion>1.0.0</ApplicationVersion><ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
     <TrimMode>copy</TrimMode><MtouchInterpreter>all</MtouchInterpreter>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>

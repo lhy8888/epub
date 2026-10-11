@@ -1,0 +1,68 @@
+name: Platform releases
+on:
+  push:
+    tags: ['release-v*', 'windows-v*', 'macos-v*', 'linux-v*', 'android-v*', 'ios-v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    name: Validate source version and select platforms
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Match tag to source version
+        id: plan
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 tools/release_platforms.py plan --tag "$RELEASE_TAG" --output "$GITHUB_OUTPUT"
+  build:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+  platforms:
+    needs: plan
+    uses: ./.github/workflows/platforms.yml
+  security:
+    needs: plan
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/security.yml
+  publish:
+    name: Publish ${{ matrix.platform }}
+    needs: [plan, build, platforms, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: ${{ matrix.artifact }}
+          merge-multiple: true
+          path: artifacts
+      - name: Verify files, upload draft, download and verify bytes, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          RELEASE_TAG: ${{ matrix.tag }}
+        run: python3 tools/release_platforms.py publish --platform "$RELEASE_PLATFORM" --tag "$RELEASE_TAG"
+      - name: Save release verification
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-verification-${{ matrix.platform }}
+          path: release-verification.json
+          if-no-files-found: error

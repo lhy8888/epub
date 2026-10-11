@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tarfile
 import zipfile
+from release_platforms import project_version
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,7 +21,8 @@ def main():
     output = destination / "publish"
     subprocess.run(["dotnet", "publish", str(ROOT / "src/QuietRead.Desktop"), "-c", "Release", "-r", args.rid,
                     "--self-contained", "true", "-p:PublishSingleFile=false", "-p:RestoreLockedMode=true", "-o", str(output)], check=True)
-    stem = "QuietRead-0.1.0-" + args.rid
+    version = project_version()
+    stem = "QuietRead-" + version + "-" + args.rid
     if args.rid.startswith("osx-"):
         package = destination / (stem + ".app")
         content = package / "Contents"
@@ -29,8 +31,8 @@ def main():
         (content / "Resources").mkdir(parents=True, exist_ok=True)
         with (content / "Info.plist").open("wb") as stream:
             plistlib.dump({"CFBundleName": "QuietRead", "CFBundleDisplayName": "QuietRead", "CFBundleExecutable": "QuietRead.Desktop",
-                          "CFBundleIdentifier": "io.github.lhy8888.quietread", "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
-                          "CFBundleShortVersionString": "0.1.0", "NSHighResolutionCapable": True,
+                          "CFBundleIdentifier": "io.github.lhy8888.quietread", "CFBundlePackageType": "APPL", "CFBundleVersion": version,
+                          "CFBundleShortVersionString": version, "NSHighResolutionCapable": True,
                           "LSMinimumSystemVersion": "13.0"}, stream)
         shutil.copy(ROOT / "LICENSE", content / "Resources")
         shutil.copy(ROOT / "docs/THIRD-PARTY-NOTICES.md", content / "Resources")

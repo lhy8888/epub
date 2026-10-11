@@ -47,6 +47,8 @@ def main():
                     errors.append(f"Dependency outside the documented pinned Avalonia policy: {name}: {reference.attrib}")
         if name.startswith(".github/workflows/"):
             for action in re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", text, re.MULTILINE):
+                if re.fullmatch(r"\./\.github/workflows/[A-Za-z0-9_.-]+\.yml", action) and (ROOT / action).is_file():
+                    continue
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}", action):
                     errors.append(f"Action must use a full commit SHA: {name}: {action}")
             if "pull_request_target:" in text:

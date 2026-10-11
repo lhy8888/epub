@@ -11,8 +11,8 @@
 
 ## 下载与开始阅读
 
-1. 打开 [构建下载页面](https://github.com/lhy8888/epub/actions/workflows/ci.yml)，选择 `main` 最近一次成功运行，在 **Artifacts** 下载 `QuietRead-Windows-x64`。
-2. 解开下载包，再将其中的 `QuietRead-*-Windows-x64.zip` **完整解压**，双击 `QuietRead.exe`。便携包包含运行时，无需另装 .NET。
+1. 打开 [GitHub Releases](https://github.com/lhy8888/epub/releases)，按系统选择 Windows、macOS、Linux、Android 或 iOS 的独立发布页；首版均为 **1.0.0**。
+2. Windows 下载 `QuietRead-1.0.0-Windows-x64.zip`，**完整解压**后双击 `QuietRead.exe`。便携包包含运行时，无需另装 .NET。其余系统见下表。
 3. 点击「打开」或将一个本地 `.epub` 文件拖入窗口。包内的 `samples/QuietRead-Guide.epub` 可用于体验。
 4. 使用滚轮或底部「上一页 / 下一页」阅读，在侧栏切换目录、书签、查找和批注；「Aa」调整外观，「全屏」扩大阅读区域。
 
@@ -20,7 +20,7 @@
 
 再次启动程序或通过命令行打开 EPUB，会将打开请求转交到现有窗口。
 
-Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供未签名的 Windows x64 便携包；正式版本发布后可从 [Releases](https://github.com/lhy8888/epub/releases) 下载。
+Releases 附件可直接下载，各包附带 SHA-256 校验文件。各平台分别使用 `windows-v1.0.0`、`macos-v1.0.0`、`linux-v1.0.0`、`android-v1.0.0`、`ios-v1.0.0` 标签，后续可独立升级。Android 开发签名和 iOS 未签名构建标记为预发布。持续开发的 Actions 下载需要登录 GitHub，构建产物有保留期限。
 
 ## 跨平台构建
 
@@ -29,10 +29,10 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 | 平台 | 构建产物及使用边界 |
 | --- | --- |
 | Windows 11 x64 | 原有自包含 WPF 便携 ZIP，可直接运行 |
-| macOS 13+ | `QuietRead-osx-x64` / `QuietRead-osx-arm64` 中的 `.app.tar.gz`；未签名、未公证 |
-| Linux x64 | `QuietRead-linux-x64` 中的自包含 `.tar.gz`；需要图形会话、fontconfig 和系统字体 |
-| Android 6+ | `QuietRead-Android-development` 中的开发签名 APK，支持 ARM64 / x64；正式发布需要固定签名密钥 |
-| iOS 15+ | `QuietRead-iOS-builds` 中的模拟器应用和未签名 ARM64 设备应用；真机安装与 TestFlight 需要 Apple 签名和描述文件 |
+| macOS 13+ | `QuietRead-1.0.0-osx-x64.tar.gz` / `QuietRead-1.0.0-osx-arm64.tar.gz`，内含 `.app`；未签名、未公证 |
+| Linux x64 | `QuietRead-1.0.0-linux-x64.tar.gz` 自包含包；需要图形会话、fontconfig 和系统字体 |
+| Android 6+ | `QuietRead-1.0.0-Android-arm64-x64-development.apk`，支持 ARM64 / x64；开发签名不保证后续构建可原地升级，升级或卸载前先导出阅读数据 |
+| iOS 15+ | `QuietRead-1.0.0-iOS-simulator-unsigned.tar.gz` / `QuietRead-1.0.0-iOS-device-unsigned.tar.gz`；设备包不能直接安装，真机安装与 TestFlight 需要 Apple 签名和描述文件 |
 
 共享界面提供本地 EPUB 导入、文字与图片阅读、目录／书内链接／脚注、滚动与长章分段、可取消搜索、书签、单段选区高亮和笔记、元数据、JSON 迁移、Markdown 摘录、主题／字号／行距／宽度／单书外观及中英文切换。小屏使用折叠工具面板，按钮自动换行。Windows 下表中的高级排版、目录折叠、多段选区及系统专用无障碍行为继续保留在 WPF 版；共享版的具体实现范围和命令见 [跨平台说明](docs/CROSS-PLATFORM.md)。
 
