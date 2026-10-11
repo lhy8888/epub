@@ -51,7 +51,7 @@ dotnet run --project tests/QuietRead.UiTests -c Release -- samples/QuietRead-Gui
 3. 重新发布 Windows x64；将对应 `Microsoft.NETCore.App` 与 `Microsoft.WindowsDesktop.App` 版本的官方许可证/第三方声明更新到 `licenses/`。打包器会拒绝缺少对应版本声明的包。
 4. 同步 `Directory.Build.props`、`app.manifest`、界面版本信息、CHANGELOG 和 `docs/RELEASE-NOTES.md`。
 5. 等待主分支 Build and checks、CodeQL 检查通过，处理 Security 中的扫描发现，再完成 Windows 11 真机验收。
-6. 将 `Directory.Build.props` 中的版本更新到待发布版本，并更新手机构建号：Android `ApplicationVersion` 是递增整数，iOS `ApplicationVersion` 是递增构建版本。推送单个平台标签，例如 `windows-v1.0.1`，只发布该平台；首发全平台使用 `release-v1.0.0`。标签必须匹配项目版本。`release.yml` 复用构建、五平台与 CodeQL 检查，全通过后创建独立平台标签、上传草稿附件、重新下载核对字节，再公开发布。公开的版本与附件不会自动覆盖；发布后修改需使用新版本。
+6. 将 `Directory.Build.props` 中的版本更新到待发布版本，并更新手机构建号：Android `ApplicationVersion` 是递增整数，iOS `ApplicationVersion` 是递增构建版本。推送单个平台标签，例如 `windows-v1.0.1`，只发布该平台；首发全平台使用 `release-v1.0.0`，仅 macOS/Linux 同发可用 `unix-v1.0.0`。标签必须匹配项目版本。`release.yml` 复用构建、五平台与 CodeQL 检查，全通过后创建独立平台标签、上传草稿附件、重新下载核对字节，再公开发布。公开的版本与附件不会自动覆盖；发布后修改需使用新版本。
 
 Actions 默认只授予读取仓库权限，只有版本标签的发布任务可写 Releases，只有 CodeQL 任务可写扫描结果。所有 Action 固定完整 SHA，并交由 Dependabot 提交更新 PR。不要用 `pull_request_target` 执行 PR 代码。
 

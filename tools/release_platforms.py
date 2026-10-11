@@ -33,10 +33,10 @@ def project_version():
 
 
 def release_plan(tag):
-    match = re.fullmatch(r"(release|windows|macos|linux|android|ios)-v(" + VERSION + ")", tag)
+    match = re.fullmatch(r"(release|unix|windows|macos|linux|android|ios)-v(" + VERSION + ")", tag)
     if not match or match[2] != project_version():
         raise ValueError("Release tag must select a platform (or release) and match project Version")
-    platforms = PLATFORMS if match[1] == "release" else [match[1]]
+    platforms = PLATFORMS if match[1] == "release" else ["macos", "linux"] if match[1] == "unix" else [match[1]]
     return {"include": [{"platform": p, "tag": p + "-v" + match[2],
                          "title": "QuietRead " + PLATFORMS[p][0] + " " + match[2],
                          "artifact": PLATFORMS[p][1]} for p in platforms]}
@@ -48,13 +48,14 @@ def assets_for(platform, tag, directory):
         raise ValueError("Publisher requires one matching platform tag")
     root = Path(directory)
     names = ["QuietRead-" + project_version() + "-" + suffix for suffix in PLATFORMS[platform][2]]
-    binaries = {p.name for p in root.iterdir() if p.name.endswith((".zip", ".tar.gz", ".apk"))}
-    if binaries != set(names):
-        raise ValueError("Missing, unexpected, or wrong-version release binaries: " + repr(binaries))
+    binaries = [p for p in root.rglob("*") if p.name.endswith((".zip", ".tar.gz", ".apk"))]
+    if len(binaries) != len(names) or {p.name for p in binaries} != set(names):
+        raise ValueError("Missing, duplicate, unexpected, or wrong-version release binaries: " + repr(binaries))
+    by_name = {p.name: p for p in binaries}
     assets = []
     for name in names:
-        package = root / name
-        checksum = root / (name + ".sha256")
+        package = by_name[name]
+        checksum = package.with_name(name + ".sha256")
         if package.is_symlink() or checksum.is_symlink() or package.stat().st_size == 0:
             raise ValueError("Release assets must be nonempty regular files")
         with package.open("rb") as stream:
@@ -155,4 +156,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        message = (type(error).__name__ + ": " + str(error)).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print("::error title=Platform release verification::" + message, flush=True)
+        raise

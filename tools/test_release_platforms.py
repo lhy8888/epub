@@ -35,6 +35,28 @@ class ReleaseChecks(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.release_plan(tag)
 
+    def test_unix_batch_only_selects_unpublished_desktop_platforms(self):
+        plan = release.release_plan("unix-v" + release.project_version())["include"]
+        self.assertEqual([p["platform"] for p in plan], ["macos", "linux"])
+
+    def test_nested_desktop_archive_with_root_reports(self):
+        directory = self.root / "download"
+        nested = directory / "desktop-linux-x64"
+        nested.mkdir(parents=True)
+        archive = nested / ("QuietRead-" + release.project_version() + "-linux-x64.tar.gz")
+        archive.write_bytes(b"native Linux build")
+        checksum = archive.with_name(archive.name + ".sha256")
+        checksum.write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name + "\n")
+        (directory / "core-platform.json").write_text('{"Passed":103}')
+        self.assertEqual(release.assets_for("linux", "linux-v" + release.project_version(), directory), [archive, checksum])
+
+    def test_duplicate_archive_in_another_directory_rejected(self):
+        nested = self.root / "duplicate"
+        nested.mkdir()
+        (nested / self.assets[0].name).write_bytes(self.assets[0].read_bytes())
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            release.assets_for("windows", self.tag, self.root)
+
     def test_changed_package_rejected(self):
         self.assets[0].write_bytes(b"modified output")
         with self.assertRaisesRegex(ValueError, "Checksum mismatch"):

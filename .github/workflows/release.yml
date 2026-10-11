@@ -1,7 +1,7 @@
 name: Platform releases
 on:
   push:
-    tags: ['release-v*', 'windows-v*', 'macos-v*', 'linux-v*', 'android-v*', 'ios-v*']
+    tags: ['release-v*', 'unix-v*', 'windows-v*', 'macos-v*', 'linux-v*', 'android-v*', 'ios-v*']
 permissions:
   contents: read
 concurrency:
