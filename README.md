@@ -120,7 +120,7 @@ Windows 上生成包含运行时的便携包：
 
 ## 测试与验证
 
-当前回归包含 **100 项核心/安全测试、45 项 Windows WPF 实窗测试和 9 项共享界面／私有存储测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
+当前回归包含 **100 项核心/安全测试、45 项 Windows WPF 实窗测试和 10 项共享界面／私有存储测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
 
 ```powershell
 # Linux / Windows：核心、安全、示例兼容性及基准

@@ -2,7 +2,7 @@
 
 ## 未发布
 
-- 新增 macOS、Linux、Android、iOS 宿主和 Avalonia 共享阅读界面，保留 Windows WPF；各平台独立编译与打包，新增 9 项跨平台回归。
+- 新增 macOS、Linux、Android、iOS 宿主和 Avalonia 共享阅读界面，保留 Windows WPF；各平台独立编译与打包，新增 10 项跨平台回归。
 
 - 增加简体中文 / English 界面即时切换和重启记忆，覆盖主窗口、书库、提示、帮助及无障碍名称；Markdown 导出的说明随界面语言变化，书籍和笔记原文保留。明确书籍文件指纹提示，继续保持本地离线、无账号。
 - 增加 5 项核心和 5 项 WPF 语言回归，中英文文案覆盖纳入 CI，并保存英文窗口截图；当前合计 100 / 45 项。用法和验证边界见 [中英文界面说明](docs/LOCALIZATION.md)。

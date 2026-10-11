@@ -30,6 +30,11 @@ public sealed class ReaderApp : Application
             };
             desktop.MainWindow = window;
         }
+        else if (ApplicationLifetime is IActivityApplicationLifetime activities && ActiveView != null)
+        {
+            ReaderSession session = ActiveView.Session;
+            activities.MainViewFactory = () => ActiveView = new ReaderView(session);
+        }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime mobile) mobile.MainView = content;
         base.OnFrameworkInitializationCompleted();
     }

@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 import plistlib
 import subprocess
+import struct
 import sys
 import tarfile
 import zipfile
@@ -27,6 +28,20 @@ def main():
                 assert "AndroidManifest.xml" in names
                 assert any(name.startswith("lib/arm64-v8a/") for name in names), "No ARM64 native runtime"
                 assert any(name.startswith("lib/x86_64/") for name in names), "No x64 native runtime"
+                # Android 16 KB devices need every 64-bit native LOAD segment to
+                # align to 16 KB. Check the actual APK, including transitive assets.
+                for name in names:
+                    if not name.startswith(("lib/arm64-v8a/", "lib/x86_64/")) or not name.endswith(".so"):
+                        continue
+                    data = package.read(name)
+                    assert data[:6] == b"\x7fELF\x02\x01", "Expected little-endian ELF64: " + name
+                    offset = struct.unpack_from("<Q", data, 32)[0]
+                    size, count = struct.unpack_from("<HH", data, 54)
+                    assert size >= 56
+                    for i in range(count):
+                        kind, flags, file_offset, address, physical, file_size, memory_size, alignment = struct.unpack_from("<IIQQQQQQ", data, offset + i * size)
+                        if kind == 1:
+                            assert alignment >= 16384 and file_offset % 16384 == address % 16384, "Native library lacks 16 KB page support: " + name
             # aapt is part of the runner's verified Android SDK installation.
             import os
             sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))

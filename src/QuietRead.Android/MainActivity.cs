@@ -7,7 +7,7 @@ namespace QuietRead.Android;
 
 [Activity(Label = "QuietRead", Theme = "@style/QuietReadTheme", MainLauncher = true,
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
-public sealed class MainActivity : AvaloniaMainActivity<ReaderApp>
+public sealed class MainActivity : AvaloniaMainActivity
 {
     protected override void OnStop()
     {

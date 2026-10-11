@@ -145,6 +145,22 @@ internal static class Program
             }
             finally { window.Close(); }
         });
+        await Test("Activity recreation restores the session and latest saved paragraph", async () =>
+        {
+            using var session = new ReaderSession(DirectoryFor("activity")); session.Open(sample);
+            session.RememberPosition(session.Book!.BookKey, 0, 2); Equal(2, session.TargetBlock);
+            var first = new Window { Content = new ReaderView(session), Width = 390, Height = 844 }; first.Show();
+            await Task.Delay(80); first.Close();
+            var view = new ReaderView(session); var second = new Window { Content = view, Width = 390, Height = 844 }; second.Show();
+            try
+            {
+                await Task.Delay(80); True(!view.Busy && view.RenderedText.Contains("中文原文"));
+                Equal(2, session.Data!.History.BlockIndex); Equal(2, session.TargetBlock);
+                var appearance = session.Preferences.Copy(); appearance.FontSize = 28; session.SetAppearance(appearance, true);
+                Equal(2, session.TargetBlock); Equal(28d, session.Preferences.FontSize);
+            }
+            finally { second.Close(); }
+        });
         await Test("Phone and desktop layouts fit their viewport and bound long chapters", async () =>
         {
             using var session = new ReaderSession(DirectoryFor("layout")); var view = new ReaderView(session);

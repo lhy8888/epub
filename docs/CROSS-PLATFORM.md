@@ -46,7 +46,7 @@ dotnet restore src/QuietRead.Android --locked-mode
 dotnet publish src/QuietRead.Android -c Release --no-restore -p:JavaSdkDirectory=/path/to/jdk21 -p:AndroidKeyStore=false -o artifacts/android
 python3 tools/check_mobile_package.py android artifacts/android
 
-# iOS：macOS、Xcode 26.0 / 26.0.1，工作负载版本由 SDK 随带 manifest 固定
+# iOS：macOS、Xcode 26.3，工作负载版本由 SDK 随带 manifest 固定
 dotnet workload install ios --skip-manifest-update
 dotnet restore src/QuietRead.iOS --locked-mode
 dotnet build src/QuietRead.iOS -c Release --no-restore -r iossimulator-arm64 -p:EnableCodeSigning=false
@@ -58,7 +58,7 @@ dotnet build src/QuietRead.iOS -c Release --no-restore -r ios-arm64 -p:EnableCod
 ## 验证与证据
 
 - 原有 100 项核心和 45 项 WPF 回归继续执行。
-- 9 项跨平台测试检查非寻址流导入、损坏/取消/大小限制、去重、数据重启、错误候选不污染已有笔记、搜索取消、无路径 JSON 迁移、写锁、双语正文保持和 390 DIP 布局及长章预算。
+- 10 项跨平台测试检查非寻址流导入、损坏/取消/大小限制、去重、数据重启、错误候选不污染已有笔记、搜索取消、无路径 JSON 迁移、写锁、双语正文保持和 390 DIP 布局及长章预算。
 - Platform builds 在 macOS Intel/ARM64、Linux x64 执行核心和共享界面测试，打包后启动真实程序、打开示例并保存窗口截图和 JSON 报告。
-- Android 验证 APK 的 ZIP CRC、ARM64/x64 原生运行时和离线权限；iOS 验证模拟器/设备 `.app` 的标识和可执行文件。
+- Android 验证 APK 的 ZIP CRC、ARM64/x64 原生运行时、全部原生库的 16 KB LOAD 段对齐和离线权限；iOS 验证模拟器/设备 `.app` 的标识和可执行文件。
 - 编译或 APK/.app 结构检查不等于手机实机测试；系统文件选择器、触摸选区、后台恢复和真机性能还需安装对应包进行设备验证。测试结论以具体提交的 Actions 结果为准。

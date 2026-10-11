@@ -56,9 +56,15 @@ public sealed class ReaderView : UserControl
         Build(); _ready = true; RefreshLists(); ApplyAppearance();
         _scroll.ScrollChanged += (_, _) => { if (!_restoring && !_busy) { _saveTimer.Stop(); _saveTimer.Start(); } };
         _saveTimer.Tick += async (_, _) => { _saveTimer.Stop(); await RunAsync(() => Task.Run(PersistPosition), showBusy: false); };
+        DetachedFromVisualTree += (_, _) => { _saveTimer.Stop(); _operation?.Cancel(); };
         AttachedToVisualTree += async (_, _) =>
         {
-            if (ReaderApp.StartupFile is not { } path) return;
+            if (ReaderApp.StartupFile is not { } path)
+            {
+                if (Session.Data != null && Session.Book != null)
+                    await RunAsync(async () => { await Task.Run(() => Session.Navigate(Session.Data.History.ChapterIndex, Session.Data.History.BlockIndex, Session.Data.History.Locator)); await RenderAsync(); });
+                return;
+            }
             ReaderApp.StartupFile = null;
             bool success = await OpenPathAsync(path);
             if (ReaderApp.SmokeReport is { } report) await FinishSmokeAsync(report, success);

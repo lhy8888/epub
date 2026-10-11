@@ -82,7 +82,7 @@ public sealed class ReaderSession : IDisposable
     private void RememberPositionCore(int block, int offset)
     {
         if (_data == null || Chapter == null) return;
-        block = ClampBlock(block); _data.History.ChapterIndex = ChapterIndex;
+        block = ClampBlock(block); TargetBlock = block; _data.History.ChapterIndex = ChapterIndex;
         _data.History.BlockIndex = block; _data.History.Locator = TextLocation.Capture(Chapter, block, offset);
         _data.History.LastReadUtc = DateTime.UtcNow;
     }
