@@ -47,6 +47,11 @@ public sealed class ReaderView : UserControl
     private object?[] _statusArguments = [];
     private string? _statusError;
     private int _renderGeneration;
+    private bool _backgrounded, _needsRender, _resumeRequested;
+    private string? _displayBookId;
+    private int _displayChapterIndex;
+    private string? _searchBookId;
+    private int _searchGeneration;
     private readonly Stack<(int Chapter, int Block, ReadingLocator? Locator)> _back = new(), _forward = new();
     public bool Busy => _busy;
     public string RenderedText => string.Join('\n', _paragraphs.Select(p => p.Text.Inlines?.Text ?? p.Text.Text));
@@ -56,7 +61,11 @@ public sealed class ReaderView : UserControl
         Build(); _ready = true; RefreshLists(); ApplyAppearance();
         _scroll.ScrollChanged += (_, _) => { if (!_restoring && !_busy) { _saveTimer.Stop(); _saveTimer.Start(); } };
         _saveTimer.Tick += async (_, _) => { _saveTimer.Stop(); await RunAsync(() => Task.Run(PersistPosition), showBusy: false); };
-        DetachedFromVisualTree += (_, _) => { _saveTimer.Stop(); _operation?.Cancel(); };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _saveTimer.Stop(); _operation?.Cancel(); ++_renderGeneration; _restoring = false; _resumeRequested = false;
+            ClearDocument(); _displayBookId = null; _position = null; _needsRender = Session.Book != null;
+        };
         AttachedToVisualTree += async (_, _) =>
         {
             if (ReaderApp.StartupFile is not { } path)
@@ -124,7 +133,8 @@ public sealed class ReaderView : UserControl
         { if (_marksList.SelectedItem is MarkRow row) await NavigateAsync(row.Mark.ChapterIndex, row.Mark.BlockIndex, row.Mark.Locator); };
         var toc = Panel(_tocFilter, _tocList, Label("书签"), _marksList, Button("删除书签", DeleteBookmarkAsync));
         _query.MaxLength = 128; _query.PlaceholderText = Language.Get("全文搜索关键词");
-        _searchList.MaxHeight = 360; _searchList.SelectionChanged += async (_, _) => { if (_searchList.SelectedItem is HitRow row) await NavigateAsync(row.Hit.ChapterIndex, row.Hit.BlockIndex); };
+        _searchList.MaxHeight = 360; _searchList.SelectionChanged += async (_, _) =>
+        { if (_searchList.SelectedItem is HitRow row) await JumpSearchAsync(row); };
         var stop = Button("停止", () => { _operation?.Cancel(); return Task.CompletedTask; });
         var search = Panel(_query, Check(_currentChapter, "当前章"), Check(_matchCase, "区分大小写"), Check(_wholeWord, "整词"), Button("查找", SearchAsync), stop, _searchList);
         _notesList.MaxHeight = 240; _notesList.SelectionChanged += (_, _) => { if (_notesList.SelectedItem is NoteRow row) { _note.Text = row.Note.Note; _color.SelectedIndex = Array.IndexOf(Colors, row.Note.Color); } };
@@ -172,9 +182,20 @@ public sealed class ReaderView : UserControl
             if (showBusy) SetStatus("正在处理…");
             await work(); if (refresh) RefreshLists(); SetStatus("已保存"); return true;
         }
-        catch (OperationCanceledException) { SetStatus("搜索已停止。"); return false; }
+        catch (OperationCanceledException)
+        {
+            SetStatus("搜索已停止。");
+            if (_needsRender && !_backgrounded && !_closed && TopLevel.GetTopLevel(this) != null) _resumeRequested = true;
+            return false;
+        }
         catch (Exception error) { _statusError = error.Message; RefreshStatus(); return false; }
-        finally { _operation.Dispose(); _operation = null; _busy = false; }
+        finally
+        {
+            _operation.Dispose(); _operation = null; _busy = false;
+            if (_searchBookId != null && _searchBookId != Session.Book?.BookKey) ClearSearch();
+            if (_resumeRequested && !_backgrounded)
+            { _resumeRequested = false; Dispatcher.UIThread.Post(async () => await ResumeFromBackgroundAsync()); }
+        }
     }
     private void SetStatus(string key, params object?[] args)
     { _statusKey = key; _statusArguments = args; _statusError = null; RefreshStatus(); }
@@ -193,7 +214,7 @@ public sealed class ReaderView : UserControl
     public async Task<bool> OpenPathAsync(string path)
     {
         bool result = await RunAsync(async () =>
-        { await Task.Run(() => { PersistPosition(); Session.Open(path, _operation!.Token); }); _back.Clear(); _forward.Clear(); await RenderAsync(); RefreshLists(); });
+        { await Task.Run(() => { PersistPosition(); Session.Open(path, _operation!.Token); }); ClearSearch(); _back.Clear(); _forward.Clear(); await RenderAsync(); RefreshLists(); });
         return result;
     }
     private async Task PickBookAsync()
@@ -210,7 +231,7 @@ public sealed class ReaderView : UserControl
         {
             using IStorageFile file = selected[0]; await using Stream source = await file.OpenReadAsync();
             string path = await Session.Files.ImportAsync(source, _operation!.Token);
-            await Task.Run(() => { PersistPosition(); Session.Open(path, _operation.Token); }); _back.Clear(); _forward.Clear(); await RenderAsync(); RefreshLists();
+            await Task.Run(() => { PersistPosition(); Session.Open(path, _operation.Token); }); ClearSearch(); _back.Clear(); _forward.Clear(); await RenderAsync(); RefreshLists();
         });
     }
     private void PersistPosition()
@@ -223,7 +244,8 @@ public sealed class ReaderView : UserControl
     private Position? _position;
     private void CapturePosition()
     {
-        if (_restoring || Session.Book == null || Session.Chapter == null) return;
+        if (_restoring || Session.Book == null || Session.Chapter == null ||
+            _displayBookId != Session.Book.BookKey || _displayChapterIndex != Session.ChapterIndex) return;
         int top = Session.TargetBlock;
         foreach (var paragraph in _paragraphs)
         {
@@ -234,106 +256,164 @@ public sealed class ReaderView : UserControl
     }
     public void PersistForBackground()
     {
-        if (_closed) return; _operation?.Cancel(); CapturePosition();
+        if (_closed) return; _backgrounded = true;
+        if (_busy) _needsRender = true;
+        _operation?.Cancel(); if (!_busy) CapturePosition();
         try { PersistPosition(); Session.Save(); }
         catch (Exception error) { _statusError = error.Message; RefreshStatus(); }
+    }
+    public async Task ResumeFromBackgroundAsync()
+    {
+        _backgrounded = false; if (_closed || TopLevel.GetTopLevel(this) == null) return;
+        if (_busy) { _resumeRequested = true; return; }
+        if (_needsRender) await RunAsync(async () => { await RenderAsync(); RefreshLists(); });
     }
     public bool TryClose()
     {
         if (_busy || _dialogOpen) { SetStatus("正在处理…"); return false; }
         PersistForBackground();
-        try { Session.Save(); Session.Dispose(); _closed = true; _saveTimer.Stop(); foreach (var bitmap in _images) bitmap.Dispose(); return true; }
+        try { Session.Save(); Session.Dispose(); _closed = true; _saveTimer.Stop(); ClearDocument(); return true; }
         catch (Exception error) { _statusError = error.Message; RefreshStatus(); return false; }
     }
 
-    public async Task RenderAsync()
+    public Task RenderAsync() => RenderAsync(alignBottom: false);
+    private async Task RenderAsync(bool alignBottom)
     {
-        if (Session.Book == null || Session.Chapter == null) { ClearDocument(); _title.Text = "QuietRead"; _document.Children.Add(Label("打开一本书。")); return; }
-        ParsedChapter chapter = Session.Chapter; int start = Session.SegmentStart;
-        _restoring = true; int generation = ++_renderGeneration; ClearDocument(); _position = null;
-        _title.Text = Session.Book.Title + " · " + Session.Book.Chapters[Session.ChapterIndex].Title;
-        ApplyAppearance();
-        var blocks = chapter.Blocks.Skip(start).Take(ReaderLimits.BlocksPerView).ToArray();
-        var spans = TextRangeLocation.Resolve(chapter, Session.Data!.Annotations, Session.ChapterIndex, Session.Book.Chapters[Session.ChapterIndex].Path);
-        // A cumulative budget applies to the segment as well as each image.
-        var rasters = await Task.Run(() =>
+        int generation = ++_renderGeneration;
+        if (Session.Book == null || Session.Chapter == null)
         {
-            var result = new Dictionary<string, RasterData>(); long pixels = 0; var budget = new ResourceReadBudget(24 * 1024 * 1024);
-            foreach (string path in blocks.Where(b => b.ImagePath != null).Select(b => b.ImagePath!).Distinct())
+            ClearDocument(); _position = null; _displayBookId = null; _restoring = false; _needsRender = false;
+            _title.Text = "QuietRead"; _document.Children.Add(Label("打开一本书。")); return;
+        }
+        ParsedChapter chapter = Session.Chapter; int start = Session.SegmentStart, end = Session.SegmentEnd;
+        string bookId = Session.Book.BookKey, resource = Session.Book.Chapters[Session.ChapterIndex].Path;
+        string title = Session.Book.Title + " · " + Session.Book.Chapters[Session.ChapterIndex].Title;
+        int chapterIndex = Session.ChapterIndex, targetBlock = Session.TargetBlock;
+        ReaderPreferences preferences = Session.Preferences.Copy();
+        BookAnnotation[] annotations = Session.Data!.Annotations.ToArray();
+        BookBlock[] blocks = chapter.Blocks.Skip(start).Take(end - start).ToArray();
+        CancellationToken token = _operation?.Token ?? default;
+        _needsRender = true; _position = null;
+        PreparedContent? prepared = null; bool adopted = false;
+        try
+        {
+            prepared = await Task.Run(() => PrepareContent(chapter, blocks, annotations, chapterIndex, resource, token), token);
+            token.ThrowIfCancellationRequested();
+            if (generation != _renderGeneration) return;
+            var children = new List<Control>();
+            var paragraphs = new List<(int Index, SelectableTextBlock Text)>();
+            for (int offset = 0; offset < blocks.Length; offset++)
             {
-                _operation?.Token.ThrowIfCancellationRequested();
+                token.ThrowIfCancellationRequested();
+                int index = start + offset; BookBlock block = blocks[offset];
+                if (block.Kind == BlockKind.Image)
+                {
+                    if (block.ImagePath is { } path && prepared.Images.TryGetValue(path, out Bitmap? bitmap))
+                    {
+                        var image = new Image { Source = bitmap, Stretch = Stretch.Uniform, MaxHeight = 480 };
+                        AutomationProperties.SetName(image, block.Alt ?? Language.Get("书内图片")); children.Add(image);
+                    }
+                    else children.Add(Label("（图片未显示）"));
+                    continue;
+                }
+                if (block.Kind == BlockKind.Rule)
+                { children.Add(new Border { BorderBrush = Brushes.Gray, BorderThickness = new Thickness(0, 1, 0, 0) }); continue; }
+                var paragraph = new SelectableTextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = preferences.FontSize * (block.Kind == BlockKind.Heading ? 1.25 : 1),
+                    LineHeight = preferences.FontSize * preferences.LineSpacing,
+                    Margin = new Thickness(block.Kind == BlockKind.Quote ? 12 : 0, 0, 0, preferences.FontSize * preferences.ParagraphSpacing),
+                    FlowDirection = chapter.RightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight
+                };
+                AnnotationSpan[] spans = prepared.Spans[index].ToArray();
+                // Selected offsets match PlainText exactly, including linked text.
+                int position = 0;
+                foreach (BookInline inline in block.Inlines)
+                {
+                    int inlineEnd = position + inline.Text.Length; var cuts = new SortedSet<int> { position, inlineEnd };
+                    foreach (var span in spans.Where(span => span.Start < inlineEnd && span.End > position))
+                    { cuts.Add(Math.Max(position, span.Start)); cuts.Add(Math.Min(inlineEnd, span.End)); }
+                    int[] boundaries = cuts.ToArray();
+                    for (int part = 0; part < boundaries.Length - 1; part++)
+                    {
+                        int left = boundaries[part], right = boundaries[part + 1];
+                        var run = new Run(inline.Text.Substring(left - position, right - left));
+                        if (inline.Style.HasFlag(TextStyle.Bold)) run.FontWeight = FontWeight.Bold;
+                        if (inline.Style.HasFlag(TextStyle.Italic)) run.FontStyle = FontStyle.Italic;
+                        if (inline.Style.HasFlag(TextStyle.Code)) run.FontFamily = new FontFamily("monospace");
+                        if (spans.FirstOrDefault(span => span.Start < right && span.End > left) is { } annotation)
+                            run.Background = HighlightBrush(annotation.Color);
+                        paragraph.Inlines!.Add(run);
+                    }
+                    position = inlineEnd;
+                }
+                paragraphs.Add((index, paragraph)); children.Add(paragraph);
+                foreach (BookInline inline in block.Inlines.Where(inline => inline.Link != null).DistinctBy(inline => inline.Link))
+                {
+                    LocalLink link = inline.Link!; string text = inline.Text;
+                    var button = Button(link.IsNote ? "查看注释：{0}" : "书内链接：{0}", () => LinkAsync(link));
+                    Language.Bind(button, ContentControl.ContentProperty, link.IsNote ? "查看注释：{0}" : "书内链接：{0}", text);
+                    Language.Bind(button, AutomationProperties.NameProperty, link.IsNote ? "查看注释：{0}" : "书内链接：{0}", text); children.Add(button);
+                }
+            }
+            token.ThrowIfCancellationRequested();
+            // Swap only a complete candidate. Cancellation preserves the old view.
+            _restoring = true; ClearDocument();
+            _images.AddRange(prepared.Images.Values); adopted = true;
+            foreach (Control child in children) _document.Children.Add(child);
+            _paragraphs.AddRange(paragraphs); _displayBookId = bookId; _displayChapterIndex = chapterIndex;
+            _title.Text = title; ApplyAppearance(); _scroll.Offset = default;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation != _renderGeneration) return;
                 try
                 {
-                    RasterData raster = Session.ReadImage(path, _operation?.Token ?? default, budget);
-                    pixels += (long)raster.Info.Width * raster.Info.Height;
-                    if (pixels > ReaderLimits.ImageViewPixels) break;
-                    result.Add(path, raster);
+                    if (token.IsCancellationRequested) return;
+                    if (alignBottom) _scroll.Offset = new Vector(0, Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height));
+                    else _paragraphs.FirstOrDefault(paragraph => paragraph.Index == targetBlock).Text?.BringIntoView();
+                    _needsRender = false;
                 }
-                catch (Exception e) when (e is EpubException or InvalidDataException or IOException) { }
-            }
-            return result;
-        });
-        if (generation != _renderGeneration) return;
-        for (int offset = 0; offset < blocks.Length; offset++)
-        {
-            int index = start + offset; BookBlock block = blocks[offset];
-            if (block.Kind == BlockKind.Image)
-            {
-                if (block.ImagePath is { } path && rasters.TryGetValue(path, out RasterData? data))
-                {
-                    try
-                    {
-                        using var source = new MemoryStream(data.Bytes, writable: false); var bitmap = new Bitmap(source); _images.Add(bitmap);
-                        var image = new Image { Source = bitmap, Stretch = Stretch.Uniform, MaxHeight = 480 };
-                        AutomationProperties.SetName(image, block.Alt ?? Language.Get("书内图片")); _document.Children.Add(image);
-                    }
-                    catch (Exception e) when (e is ArgumentException or NotSupportedException or InvalidDataException) { _document.Children.Add(Label("（图片未显示）")); }
-                }
-                else _document.Children.Add(Label("（图片未显示）"));
-                continue;
-            }
-            if (block.Kind == BlockKind.Rule) { _document.Children.Add(new Border { BorderBrush = Brushes.Gray, BorderThickness = new Thickness(0, 1, 0, 0) }); continue; }
-            var paragraph = new SelectableTextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = Session.Preferences.FontSize * (block.Kind == BlockKind.Heading ? 1.25 : 1),
-                LineHeight = Session.Preferences.FontSize * Session.Preferences.LineSpacing,
-                Margin = new Thickness(block.Kind == BlockKind.Quote ? 12 : 0, 0, 0, Session.Preferences.FontSize * Session.Preferences.ParagraphSpacing),
-                FlowDirection = chapter.RightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight
-            };
-            // Selected text offsets match PlainText exactly, including linked text.
-            int position = 0;
-            foreach (BookInline inline in block.Inlines)
-            {
-                int end = position + inline.Text.Length; var cuts = new SortedSet<int> { position, end };
-                foreach (var span in spans.Where(s => s.Block == index && s.Start < end && s.End > position)) { cuts.Add(Math.Max(position, span.Start)); cuts.Add(Math.Min(end, span.End)); }
-                int[] boundaries = cuts.ToArray();
-                for (int part = 0; part < boundaries.Length - 1; part++)
-                {
-                    int a = boundaries[part], b = boundaries[part + 1]; var run = new Run(inline.Text.Substring(a - position, b - a));
-                    if (inline.Style.HasFlag(TextStyle.Bold)) run.FontWeight = FontWeight.Bold;
-                    if (inline.Style.HasFlag(TextStyle.Italic)) run.FontStyle = FontStyle.Italic;
-                    if (inline.Style.HasFlag(TextStyle.Code)) run.FontFamily = new FontFamily("monospace");
-                    if (spans.FirstOrDefault(s => s.Block == index && s.Start < b && s.End > a) is { } annotation)
-                        run.Background = HighlightBrush(annotation.Color);
-                    paragraph.Inlines!.Add(run);
-                }
-                position = end;
-            }
-            _paragraphs.Add((index, paragraph)); _document.Children.Add(paragraph);
-            foreach (BookInline inline in block.Inlines.Where(i => i.Link != null).DistinctBy(i => i.Link))
-            {
-                LocalLink link = inline.Link!; string text = inline.Text;
-                var button = Button(link.IsNote ? "查看注释：{0}" : "书内链接：{0}", () => LinkAsync(link));
-                Language.Bind(button, ContentControl.ContentProperty, link.IsNote ? "查看注释：{0}" : "书内链接：{0}", text); Language.Bind(button, AutomationProperties.NameProperty, link.IsNote ? "查看注释：{0}" : "书内链接：{0}", text); _document.Children.Add(button);
-            }
+                finally { _restoring = false; CapturePosition(); }
+            }, DispatcherPriority.Loaded);
         }
-        _scroll.Offset = default;
-        Dispatcher.UIThread.Post(() =>
+        finally
         {
-            _paragraphs.FirstOrDefault(p => p.Index == Session.TargetBlock).Text?.BringIntoView();
-            _restoring = false; CapturePosition();
-        }, DispatcherPriority.Loaded);
+            if (!adopted && prepared != null) foreach (Bitmap bitmap in prepared.Images.Values) bitmap.Dispose();
+            if (!adopted && generation == _renderGeneration) _restoring = false;
+        }
+    }
+    private sealed record PreparedContent(Dictionary<string, Bitmap> Images, ILookup<int, AnnotationSpan> Spans);
+    private PreparedContent PrepareContent(ParsedChapter chapter, BookBlock[] blocks, BookAnnotation[] annotations,
+        int chapterIndex, string resource, CancellationToken token)
+    {
+        var images = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+        try
+        {
+            var spans = TextRangeLocation.Resolve(chapter, annotations, chapterIndex, resource, token).ToLookup(span => span.Block);
+            long pixels = 0; var budget = new ResourceReadBudget(24 * 1024 * 1024);
+            foreach (string path in blocks.Where(block => block.ImagePath != null).Select(block => block.ImagePath!).Distinct())
+            {
+                token.ThrowIfCancellationRequested();
+                Bitmap? bitmap = null;
+                try
+                {
+                    RasterData raster = Session.ReadImage(path, token, budget);
+                    long declaredPixels = (long)raster.Info.Width * raster.Info.Height;
+                    if (declaredPixels > ReaderLimits.ImageViewPixels - pixels) continue;
+                    using var source = new MemoryStream(raster.Bytes, writable: false);
+                    bitmap = new Bitmap(source); token.ThrowIfCancellationRequested();
+                    long decodedPixels = (long)bitmap.PixelSize.Width * bitmap.PixelSize.Height;
+                    if (bitmap.PixelSize.Width != raster.Info.Width || bitmap.PixelSize.Height != raster.Info.Height ||
+                        decodedPixels > ReaderLimits.ImageViewPixels - pixels) continue;
+                    pixels += decodedPixels; images.Add(path, bitmap); bitmap = null;
+                }
+                catch (Exception error) when (error is EpubException or IOException or ArgumentException or NotSupportedException) { }
+                finally { bitmap?.Dispose(); }
+            }
+            token.ThrowIfCancellationRequested(); return new PreparedContent(images, spans);
+        }
+        catch { foreach (Bitmap bitmap in images.Values) bitmap.Dispose(); throw; }
     }
     private static IBrush HighlightBrush(string color) => color switch { "Green" => Brushes.LightGreen, "Blue" => Brushes.LightBlue, "Rose" => Brushes.LightPink, _ => Brushes.Gold };
     private void ClearDocument()
@@ -371,17 +451,22 @@ public sealed class ReaderView : UserControl
         CapturePosition(); PushTrail(_back);
         return NavigateAsync(p.Chapter, p.Block, p.Locator, remember: false);
     }
-    private Task PageAsync(int direction)
+    private async Task PageAsync(int direction)
     {
-        if (_busy || _dialogOpen || Session.Chapter == null || Session.Book == null) return Task.CompletedTask;
+        if (_busy || _dialogOpen || Session.Chapter == null || Session.Book == null) return;
         double height = _scroll.Viewport.Height;
         if (direction > 0 && _scroll.Offset.Y + height + 2 < _scroll.Extent.Height || direction < 0 && _scroll.Offset.Y > 2)
-        { _scroll.Offset = new Vector(0, Math.Clamp(_scroll.Offset.Y + direction * height * .85, 0, Math.Max(0, _scroll.Extent.Height - height))); return Task.CompletedTask; }
-        int next = Session.SegmentStart + direction * ReaderLimits.BlocksPerView;
-        if (next >= 0 && next < Session.Chapter.Blocks.Count) return NavigateAsync(Session.ChapterIndex, next);
-        int chapter = Session.ChapterIndex + direction;
-        if (chapter < 0 || chapter >= Session.Book.Chapters.Count) { SetStatus(direction < 0 ? "已到书首。" : "已到书末。"); return Task.CompletedTask; }
-        return NavigateAsync(chapter);
+        { _scroll.Offset = new Vector(0, Math.Clamp(_scroll.Offset.Y + direction * height * .85, 0, Math.Max(0, _scroll.Extent.Height - height))); return; }
+        bool boundary = direction < 0 ? Session.SegmentIndex == 0 && Session.ChapterIndex == 0 :
+            Session.SegmentIndex == Session.SegmentStarts.Count - 1 && Session.ChapterIndex == Session.Book.Chapters.Count - 1;
+        if (boundary) { SetStatus(direction < 0 ? "已到书首。" : "已到书末。"); return; }
+        CapturePosition(); PushTrail(_back); _forward.Clear();
+        await RunAsync(async () =>
+        {
+            await Task.Run(() => { PersistPosition(); Session.NavigateSegment(direction, _operation!.Token); });
+            await RenderAsync(alignBottom: direction < 0); RefreshLists();
+        });
+        if (Bounds.Width < 800) { _sidebar.IsVisible = false; ResizeBody(); }
     }
     private async Task LinkAsync(LocalLink link)
     {
@@ -403,16 +488,25 @@ public sealed class ReaderView : UserControl
     }
     private async Task SearchAsync()
     {
+        if (_busy || _dialogOpen || Session.Book == null) return;
+        ClearSearch();
+        string bookId = Session.Book.BookKey; int generation = ++_searchGeneration;
         string query = _query.Text ?? ""; var options = new SearchOptions(_matchCase.IsChecked == true, _wholeWord.IsChecked == true,
             _currentChapter.IsChecked == true ? Session.ChapterIndex : null);
         SearchOutcome? result = null;
-        if (await RunAsync(async () => result = await Task.Run(() => Session.Search(query, options, _operation!.Token))) && result != null)
+        if (await RunAsync(async () => result = await Task.Run(() => Session.Search(query, options, _operation!.Token))) &&
+            result != null && bookId == Session.Book?.BookKey && generation == _searchGeneration)
         {
-            _searchList.ItemsSource = result.Hits.Select(hit => new HitRow(hit)).ToArray();
+            _searchBookId = bookId;
+            _searchList.ItemsSource = result.Hits.Select(hit => new HitRow(bookId, generation, hit)).ToArray();
             SetStatus(result.LimitReached ? "显示前 200 个匹配段落，可缩小关键词范围。" : "找到 {0} 个匹配段落。", result.Hits.Count);
             if (result.FailedChapters > 0) SetStatus("找到 {0} 个匹配段落；{1} 个章节未能解析。", result.Hits.Count, result.FailedChapters);
         }
     }
+    private void ClearSearch()
+    { _searchBookId = null; ++_searchGeneration; _searchList.SelectedItem = null; _searchList.ItemsSource = Array.Empty<object>(); }
+    private Task JumpSearchAsync(HitRow row) => row.BookId == Session.Book?.BookKey && row.Generation == _searchGeneration ?
+        NavigateAsync(row.Hit.ChapterIndex, row.Hit.BlockIndex) : Task.CompletedTask;
     private async Task AddAnnotationAsync()
     {
         var selection = _paragraphs.FirstOrDefault(p => p.Text.SelectionStart != p.Text.SelectionEnd);
@@ -503,16 +597,17 @@ public sealed class ReaderView : UserControl
         {
             Title = Language.Get(type == "md" ? "导出本书 Markdown 摘录" : "备份全部 JSON"),
             SuggestedFileName = "QuietRead." + type,
-            DefaultExtension = type
+            DefaultExtension = type,
+            ShowOverwritePrompt = true,
+            FileTypeChoices = [new FilePickerFileType(type == "md" ? "Markdown" : "JSON") { Patterns = ["*." + type] }]
         });
         if (target == null) return;
         string language = Language.Language;
         await RunAsync(async () =>
         {
             byte[] bytes = await Task.Run(() => { PersistPosition(); Session.Save(); return type == "md" ? Encoding.UTF8.GetBytes(Session.Library.ExportMarkdown(id!, language)) : Session.Library.ExportBackup(single ? id : null); });
-            await using Stream output = await target.OpenWriteAsync();
-            if (output.CanSeek) output.SetLength(0);
-            await output.WriteAsync(bytes, _operation!.Token); await output.FlushAsync(_operation.Token);
+            await ExportFiles.WriteAsync(target, bytes, type, Session.DirectoryPath,
+                Session.Library.Entries().Select(book => book.FilePath), _operation!.Token);
         });
     }
     private async Task ImportBackupAsync()
@@ -569,5 +664,5 @@ public sealed class ReaderView : UserControl
     private sealed record TocRow(TocItem Item) { public override string ToString() => new string(' ', Math.Clamp(Item.Depth, 0, 12) * 2) + Item.Title; }
     private sealed record MarkRow(Bookmark Mark) { public override string ToString() => Mark.Label; }
     private sealed record NoteRow(BookAnnotation Note) { public override string ToString() => Note.Range.Text + (Note.Note.Length == 0 ? "" : " · " + Note.Note); }
-    private sealed record HitRow(SearchHit Hit) { public override string ToString() => Hit.ChapterTitle + " · " + Hit.Snippet; }
+    private sealed record HitRow(string BookId, int Generation, SearchHit Hit) { public override string ToString() => Hit.ChapterTitle + " · " + Hit.Snippet; }
 }

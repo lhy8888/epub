@@ -9,6 +9,11 @@ namespace QuietRead.Android;
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
 public sealed class MainActivity : AvaloniaMainActivity
 {
+    protected override void OnResume()
+    {
+        base.OnResume();
+        _ = ReaderApp.ActiveView?.ResumeFromBackgroundAsync();
+    }
     protected override void OnStop()
     {
         // UI mutations are saved immediately; flush the last debounced scroll before suspension.

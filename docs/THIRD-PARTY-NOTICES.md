@@ -4,6 +4,8 @@ The Windows WPF reader and QuietRead.Core use the .NET platform. The shared read
 
 - Avalonia, Avalonia.Themes.Fluent, Avalonia.Desktop, Avalonia.Android, Avalonia.iOS: MIT; https://github.com/AvaloniaUI/Avalonia
 - Avalonia.Headless: MIT; test runner only.
+- Avalonia.Skia: MIT; explicitly referenced by the test runner for real bitmap decoding (also a desktop/mobile renderer dependency).
+- Avalonia.Fonts.Inter: MIT package; test runner only. Embedded Inter fonts use the SIL Open Font License 1.1; see [INTER-LICENSE.txt](INTER-LICENSE.txt).
 
 Transitive dependencies include Avalonia.BuildServices, Avalonia.Remote.Protocol, MicroCom.Runtime, SkiaSharp, HarfBuzzSharp, native Skia/HarfBuzz assets, and AndroidX support libraries on Android. Exact versions and integrity hashes are in each project's `packages.lock.json`. NuGet restore must use these locks; adding another direct dependency requires updating `tools/check_repository.py`, this document and the relevant lock files.
 

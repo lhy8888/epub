@@ -135,7 +135,12 @@ public sealed class StateStore
             // window atomically replaces settings. Keep reading the old snapshot.
             using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096);
             if (file.Length > MaxStateBytes) throw new InvalidDataException("Settings exceed size limit.");
-            AppState state = JsonSerializer.Deserialize<AppState>(file, Options) ?? new AppState();
+            byte[] bytes = new byte[checked((int)file.Length)]; file.ReadExactly(bytes);
+            if (file.ReadByte() != -1) throw new InvalidDataException("Settings changed while reading.");
+            ReadOnlySpan<byte> json = bytes;
+            if (json.StartsWith("\uFEFF"u8)) json = json[3..];
+            DataJsonBudget.Check(json, settings: true);
+            AppState state = JsonSerializer.Deserialize<AppState>(json, Options) ?? new AppState();
             if (state.Schema is not (1 or 2)) throw new InvalidDataException("Unsupported settings version.");
             state.Schema = 2;
             state.Normalize(); return state;

@@ -346,5 +346,9 @@
   "保留现有冲突数据": "Keep existing conflict data",
   "采用导入数据": "Use imported data",
   "点击「打开」选择 EPUB；目录、查找和批注用于导航与笔记。「Aa」调整外观和界面语言，书库管理元数据与 JSON 备份。阅读数据保存在本机。": "Use Open to choose an EPUB. Contents, Search and Annotations provide navigation and notes. Aa changes appearance and interface language. Library manages metadata and JSON backups. Reading data stays on this device.",
-  "已存 EPUB 的文件指纹不匹配，请先备份并检查本机文件。": "The stored EPUB fingerprint does not match. Back up your data and check the local file."
+  "已存 EPUB 的文件指纹不匹配，请先备份并检查本机文件。": "The stored EPUB fingerprint does not match. Back up your data and check the local file.",
+  "请选择正确类型的导出文件（JSON 或 Markdown）。": "Choose the correct export file type (JSON or Markdown).",
+  "不能覆盖书籍或应用阅读数据，请选择其他导出位置。": "Choose another export location to protect books and reading data.",
+  "请选择一个新的导出文件；已有文件不会被覆盖。": "Choose a new export file; existing files will be kept.",
+  "导出失败，请删除未完成的文件后重试。": "Export failed. Delete the incomplete file before trying again."
 }

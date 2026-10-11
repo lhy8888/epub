@@ -22,6 +22,6 @@
 
 新增 5 项核心回归：语言保存及旧状态、完整资源参数、并发格式化与原文保护、错误诊断、双语 Markdown 导出。新增 5 项 WPF 回归：即时切换和最小窗口布局、正文/位置/脚注/笔记草稿保留、搜索及错误切换、书库编辑保留、关闭重开与单书外观隔离。
 
-当前合计 100 项核心和 45 项 WPF 回归。Windows Actions 产物 `windows-ui-report` 包含中文 `windows-smoke.png` 和英文 `windows-language-en.png`；通过状态以对应提交运行结果为准。
+当前合计 103 项核心和 45 项 WPF 回归，并在共享界面测试中检查双语菜单与正文保持。Windows Actions 产物 `windows-ui-report` 包含中文 `windows-smoke.png` 和英文 `windows-language-en.png`；通过状态以对应提交运行结果为准。
 
 Linux 可验证核心和交叉编译，实际 WPF 行为由 Windows CI 验证；Windows 11 真机读屏、多 DPI 和系统原生对话框体验仍需人工验收。

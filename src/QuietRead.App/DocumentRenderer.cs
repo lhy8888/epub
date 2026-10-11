@@ -12,19 +12,7 @@ internal sealed record PreparedImages(IReadOnlyDictionary<string, ImageSource> I
 
 internal static class DocumentRenderer
 {
-    public static int[] BuildSegments(ParsedChapter chapter)
-    {
-        var starts = new List<int> { 0 };
-        int characters = 0, count = 0, inlines = 0;
-        for (int i = 0; i < chapter.Blocks.Count; i++)
-        {
-            int length = chapter.Blocks[i].Inlines.Sum(x => x.Text.Length);
-            if (count > 0 && (count >= ReaderLimits.BlocksPerView || characters + length > 40_000 || inlines + chapter.Blocks[i].Inlines.Count > 2500))
-            { starts.Add(i); count = 0; characters = 0; inlines = 0; }
-            characters += length; count++; inlines += chapter.Blocks[i].Inlines.Count;
-        }
-        return starts.ToArray();
-    }
+    public static int[] BuildSegments(ParsedChapter chapter) => ChapterSegments.BuildStarts(chapter);
 
     public static PreparedImages PrepareImages(EpubBook book, ParsedChapter chapter, int start, int end, CancellationToken token)
     {

@@ -13,6 +13,7 @@ public sealed class ReaderSession : IDisposable
     private BookData? _data;
     private long _version;
     private bool _disposed;
+    private int[] _segmentStarts = [0];
     public AppState State { get; }
     public LibraryStore Library { get; }
     public ManagedBookFiles Files { get; }
@@ -21,7 +22,11 @@ public sealed class ReaderSession : IDisposable
     public ParsedChapter? Chapter { get; private set; }
     public int ChapterIndex { get; private set; }
     public int TargetBlock { get; private set; }
-    public int SegmentStart => TargetBlock / ReaderLimits.BlocksPerView * ReaderLimits.BlocksPerView;
+    public IReadOnlyList<int> SegmentStarts => _segmentStarts;
+    public int SegmentIndex => ChapterSegments.FindIndex(_segmentStarts, TargetBlock);
+    public int SegmentStart => _segmentStarts[SegmentIndex];
+    public int SegmentEnd => SegmentIndex + 1 < _segmentStarts.Length ? _segmentStarts[SegmentIndex + 1] : Chapter?.Blocks.Count ?? 0;
+    public string DirectoryPath => _store.DirectoryPath;
     public ReaderPreferences Preferences => _data?.Appearance ?? State.Preferences;
     public ReaderSession(string? directory = null)
     {
@@ -49,7 +54,7 @@ public sealed class ReaderSession : IDisposable
                 ParsedChapter chapter = candidate.ReadChapter(index, token);
                 int block = TextLocation.Resolve(chapter, data.History.Locator, token)?.Block ?? data.History.BlockIndex;
                 _book?.Dispose(); _book = candidate; _data = data;
-                ChapterIndex = index; Chapter = chapter; TargetBlock = ClampBlock(block);
+                ChapterIndex = index; Chapter = chapter; _segmentStarts = ChapterSegments.BuildStarts(chapter); TargetBlock = ClampBlock(block);
                 RememberPositionCore(TargetBlock, 0); Save();
             }
             catch { if (!ReferenceEquals(_book, candidate)) candidate.Dispose(); throw; }
@@ -65,8 +70,27 @@ public sealed class ReaderSession : IDisposable
             ParsedChapter parsed = _book.ReadChapter(index, token);
             if (locator != null) block = TextLocation.Resolve(parsed, locator, token)?.Block ?? block;
             if (!string.IsNullOrEmpty(fragment)) block = parsed.Anchors.GetValueOrDefault(fragment, 0);
-            ChapterIndex = index; Chapter = parsed; TargetBlock = ClampBlock(block);
+            ChapterIndex = index; Chapter = parsed; _segmentStarts = ChapterSegments.BuildStarts(parsed); TargetBlock = ClampBlock(block);
             RememberPositionCore(TargetBlock, 0); Save();
+        }
+    }
+
+    public bool NavigateSegment(int direction, CancellationToken token = default)
+    {
+        if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
+        lock (_gate)
+        {
+            ThrowIfDisposed(); if (_book == null || Chapter == null) return false;
+            int segment = SegmentIndex + direction;
+            if (segment >= 0 && segment < _segmentStarts.Length)
+            {
+                int target = direction > 0 ? _segmentStarts[segment] :
+                    (segment + 1 < _segmentStarts.Length ? _segmentStarts[segment + 1] : Chapter.Blocks.Count) - 1;
+                Navigate(ChapterIndex, target, token: token); return true;
+            }
+            int chapter = ChapterIndex + direction;
+            if (chapter < 0 || chapter >= _book.Chapters.Count) return false;
+            Navigate(chapter, direction > 0 ? 0 : int.MaxValue, token: token); return true;
         }
     }
 

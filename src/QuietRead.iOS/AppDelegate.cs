@@ -10,5 +10,6 @@ public sealed class AppDelegate : AvaloniaAppDelegate<ReaderApp>
         // AvaloniaAppDelegate implements IUIApplicationDelegate on UIResponder;
         // its deactivation event is raised by the UIKit background notification.
         ((IAvaloniaAppDelegate)this).Deactivated += (_, _) => ReaderApp.ActiveView?.PersistForBackground();
+        ((IAvaloniaAppDelegate)this).Activated += (_, _) => _ = ReaderApp.ActiveView?.ResumeFromBackgroundAsync();
     }
 }

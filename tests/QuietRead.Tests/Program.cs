@@ -796,6 +796,7 @@ Test("Oversized pipe messages are rejected before allocation and the listener re
 
 P1Tests.Register(tests, root);
 ReauditTests.Register(tests, root);
+StateBudgetTests.Register(tests, root);
 LanguageTests.Register(tests, root);
 var benchmarkResults = new List<object>();
 var compatibilityResults = new List<object>();

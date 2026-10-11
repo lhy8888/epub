@@ -13,26 +13,31 @@ using QuietRead.Cross;
 
 namespace QuietRead.CrossTests;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly List<object> Results = [];
     private static int _failed;
     private static string _root = "";
+    private static bool _finished;
+    private static readonly List<object> Measurements = [];
     [STAThread]
     private static int Main(string[] args)
     {
         _root = Path.Combine(Path.GetTempPath(), "QuietRead-cross-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(_root);
-        AppBuilder.Configure<TestApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
+        AppBuilder.Configure<TestApp>().UseSkia().WithInterFont()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+            .With(new Avalonia.Media.FontManagerOptions { DefaultFamilyName = "fonts:Inter#Inter" }).SetupWithoutStarting();
         SynchronizationContext.SetSynchronizationContext(new AvaloniaSynchronizationContext());
         using var stop = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         Dispatcher.UIThread.Post(async () =>
         {
             try { await Suite(); }
-            catch (Exception e) { _failed++; Console.Error.WriteLine(e); }
-            finally { stop.Cancel(); }
+            catch (Exception e) { _failed++; Results.Add(new { Name = "Suite execution", Passed = false, Error = e.ToString() }); Console.Error.WriteLine(e); }
+            finally { _finished = true; stop.Cancel(); }
         });
         Dispatcher.UIThread.MainLoop(stop.Token);
-        if (args.Length > 0) { Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[0]))!); File.WriteAllText(args[0], JsonSerializer.Serialize(new { Passed = Results.Count - _failed, Failed = _failed, Tests = Results }, new JsonSerializerOptions { WriteIndented = true })); }
+        if (!_finished) { _failed++; Results.Add(new { Name = "Suite deadline", Passed = false, Error = "Suite did not finish before its deadline." }); }
+        if (args.Length > 0) { Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[0]))!); File.WriteAllText(args[0], JsonSerializer.Serialize(new { Completed = _finished, Passed = Results.Count - _failed, Failed = _failed, Tests = Results, Measurements }, new JsonSerializerOptions { WriteIndented = true })); }
         Console.WriteLine($"{Results.Count - _failed} passed, {_failed} failed");
         try { Directory.Delete(_root, true); } catch (IOException) { }
         return _failed == 0 ? 0 : 1;
@@ -177,6 +182,7 @@ internal static class Program
             }
             finally { window.Close(); }
         });
+        await ReauditSuite();
     }
     private sealed class TestApp : Application { public override void Initialize() => Styles.Add(new FluentTheme()); }
     private sealed class NonSeeking(Stream inner) : Stream

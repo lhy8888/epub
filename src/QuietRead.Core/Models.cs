@@ -20,6 +20,8 @@ public static class ReaderLimits
     public const int BlockCharacters = 4096;
     public const int BlockInlines = 512;
     public const int BlocksPerView = 180;
+    public const int CharactersPerView = 40_000;
+    public const int InlinesPerView = 2500;
     public const int SearchResults = 200;
     public const long ImageViewPixels = 4_000_000;
 }

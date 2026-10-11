@@ -25,7 +25,7 @@ def main():
         "src/QuietRead.Desktop/QuietRead.Desktop.csproj": {"Avalonia.Desktop"},
         "src/QuietRead.Android/QuietRead.Android.csproj": {"Avalonia.Android"},
         "src/QuietRead.iOS/QuietRead.iOS.csproj": {"Avalonia.iOS"},
-        "tests/QuietRead.CrossTests/QuietRead.CrossTests.csproj": {"Avalonia.Headless"},
+        "tests/QuietRead.CrossTests/QuietRead.CrossTests.csproj": {"Avalonia.Headless", "Avalonia.Skia", "Avalonia.Fonts.Inter"},
     }
     forbidden = {"bin", "obj", ".vs", "release", "artifacts", "TestResults", "__pycache__"}
     private = re.compile(r"(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})")

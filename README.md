@@ -70,6 +70,8 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 
 在「书库」导出全部或单书 JSON，可备份和恢复阅读数据。导入前会显示新增、已有及冲突数量，由用户选择保留现有值或采用导入值。**JSON 备份不包含 EPUB 文件，也不导出原设备的文件路径**；迁移时另行复制 EPUB，并在新设备重新关联。Markdown 用于阅读和分享摘录，恢复数据请使用 JSON。
 
+导出只接受 JSON 或 Markdown 文件，保护书籍和应用阅读数据。桌面备份写入完成后才替换原文件；手机文档选择器导出请选择新文件名，已有非空备份会保留，失败的新导出会尝试清理。
+
 主页「清除阅读记录」只清除最近列表，长期书库、续读、书签和批注仍保留。「移除书库条目」会删除该书的阅读数据，原 EPUB 文件保留；移除前可先导出需要的批注。
 
 | 数据边界 | 当前上限 |
@@ -120,7 +122,7 @@ Windows 上生成包含运行时的便携包：
 
 ## 测试与验证
 
-当前回归包含 **100 项核心/安全测试、45 项 Windows WPF 实窗测试和 10 项共享界面／私有存储测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
+当前回归包含 **103 项核心/安全测试、45 项 Windows WPF 实窗测试，以及 Linux/macOS 27 项、Windows 25 项共享界面／私有存储测试**；两项差异为 Unix 权限与符号链接检查。共享测试使用真实 Skia 解码，覆盖重复图片预算、导出保护、取消恢复、翻页和搜索归属。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
 
 ```powershell
 # Linux / Windows：核心、安全、示例兼容性及基准
@@ -137,7 +139,7 @@ dotnet format whitespace QuietRead.sln --no-restore --verify-no-changes
 python tools/check_dependencies.py --report artifacts/dependencies.json
 ```
 
-三个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与中英文截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；语言功能见 [中英文界面说明](docs/LOCALIZATION.md)，安全、性能、保存及异步路径修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
+三个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与中英文截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；语言功能见 [中英文界面说明](docs/LOCALIZATION.md)，共享界面本轮七项修复见 [跨平台复审修复](docs/CROSS-PLATFORM-REAUDIT.md)，早期修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
 
 Windows 11 真机的 Narrator/NVDA、多 DPI、实际高对比切换、睡眠恢复和长期滚动/工作集表现仍需人工验收。
 

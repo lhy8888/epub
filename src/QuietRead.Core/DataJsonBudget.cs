@@ -11,9 +11,9 @@ internal static class DataJsonBudget
         "Entry", "Data", "DataRevision", "Title", "Author", "FilePath", "Tags", "Series", "ReadingStatus", "LastReadUtc", "BookKey", "Locator",
         "ChapterIndex", "BlockIndex", "Fraction", "Bookmarks", "Label", "CreatedUtc", "Id", "ResourcePath", "Range", "Color", "Note", "UpdatedUtc",
         "Start", "End", "Text", "Paragraph", "Offset", "Quote", "Before", "After", "Theme", "Font", "FontSize", "LineSpacing", "TextWidth",
-        "SidebarVisible", "ParagraphSpacing", "FirstLineIndent", "Alignment"];
+        "SidebarVisible", "ParagraphSpacing", "FirstLineIndent", "Alignment", "Preferences", "InterfaceLanguage"];
 
-    internal static void Check(ReadOnlySpan<byte> bytes)
+    internal static void Check(ReadOnlySpan<byte> bytes, bool settings = false)
     {
         var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = 20 });
         var arrays = new Dictionary<int, (int Maximum, int Count, int StringMaximum)>();
@@ -26,14 +26,14 @@ internal static class DataJsonBudget
             if (reader.TokenType == JsonTokenType.PropertyName)
             {
                 for (int i = 0; i < Properties.Length; i++)
-                    if (reader.ValueTextEquals(Properties[i]))
+                    if ((settings || i < Properties.Length - 2) && reader.ValueTextEquals(Properties[i]))
                     {
                         ulong bit = 1UL << i;
                         int depth = reader.CurrentDepth - 1;
                         if ((properties[depth] & bit) != 0) throw new InvalidDataException("数据包含重复属性：" + Properties[i]);
                         properties[depth] |= bit; break;
                     }
-                arrayMaximum = reader.ValueTextEquals("Books"u8) ? BookDataRules.MaxBooks : reader.ValueTextEquals("Annotations"u8) ? BookDataRules.MaxAnnotations :
+                arrayMaximum = reader.ValueTextEquals("Books"u8) ? (settings ? 32 : BookDataRules.MaxBooks) : reader.ValueTextEquals("Annotations"u8) ? BookDataRules.MaxAnnotations :
                     reader.ValueTextEquals("Bookmarks"u8) ? 64 : reader.ValueTextEquals("Tags"u8) ? 16 : 0;
                 stringMaximum = reader.ValueTextEquals("Note"u8) ? 2000 : reader.ValueTextEquals("Text"u8) ? 4096 :
                     reader.ValueTextEquals("Quote"u8) ? 48 : reader.ValueTextEquals("Before"u8) || reader.ValueTextEquals("After"u8) ? 16 :
@@ -43,6 +43,7 @@ internal static class DataJsonBudget
                 if (reader.ValueTextEquals("BookId"u8) || reader.ValueTextEquals("BookKey"u8)) stringMaximum = 64;
                 if (reader.ValueTextEquals("DataRevision"u8) || reader.ValueTextEquals("Id"u8)) stringMaximum = 36;
                 if (reader.ValueTextEquals("Color"u8) || reader.ValueTextEquals("Theme"u8) || reader.ValueTextEquals("Font"u8) || reader.ValueTextEquals("Alignment"u8) || reader.ValueTextEquals("ReadingStatus"u8)) stringMaximum = 16;
+                if (settings && reader.ValueTextEquals("InterfaceLanguage"u8)) stringMaximum = 16;
                 elementMaximum = reader.ValueTextEquals("Tags"u8) ? 40 : 0;
                 continue;
             }
