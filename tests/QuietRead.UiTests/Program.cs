@@ -369,6 +369,7 @@ internal static class Program
                 }
                 finally { reading.Close(); }
                 await P1UiChecks.Run(temporary);
+                await ReauditUiChecks.Run(temporary);
             }
             catch (Exception exception) { Record("WPF smoke harness", exception); }
             finally

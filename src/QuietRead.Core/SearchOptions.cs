@@ -25,12 +25,16 @@ public static class SearchText
     private static bool WordBefore(ReadOnlySpan<char> text, int at)
     {
         if (at == 0) return false;
-        Rune.DecodeLastFromUtf16(text[..at], out Rune rune, out _); return IsWord(rune);
+        Rune.DecodeLastFromUtf16(text[..at], out Rune left, out _);
+        Rune.DecodeFromUtf16(text[at..], out Rune right, out _);
+        return IsWord(left) && IsWord(right);
     }
     private static bool WordAfter(ReadOnlySpan<char> text, int at)
     {
         if (at == text.Length) return false;
-        Rune.DecodeFromUtf16(text[at..], out Rune rune, out _); return IsWord(rune);
+        Rune.DecodeLastFromUtf16(text[..at], out Rune left, out _);
+        Rune.DecodeFromUtf16(text[at..], out Rune right, out _);
+        return IsWord(left) && IsWord(right);
     }
     private static bool IsWord(Rune rune)
     {

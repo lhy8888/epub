@@ -105,6 +105,7 @@ public sealed class LibraryStore
                 entries.Add(new LibraryEntry(id, generation, basis?.Title ?? title, basis?.Author ?? author, path,
                     basis?.Tags ?? [], basis?.Series ?? "", basis?.ReadingStatus == "Finished" ? "Finished" : "Reading", data.History.LastReadUtc));
                 Commit(entries);
+                _lastSnapshot = null;
             }
             catch { DeleteStaged(staged); throw; }
             return data;

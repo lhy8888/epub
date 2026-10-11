@@ -5,15 +5,34 @@ namespace QuietRead.Core;
 // Reject large collections before the typed serializer constructs their objects.
 internal static class DataJsonBudget
 {
+    // Only typed properties need tracking. Unknown fields are skipped by the
+    // serializer; do not allocate attacker-controlled property-name strings.
+    private static readonly string[] Properties = ["Schema", "BookId", "History", "Annotations", "Appearance", "Books", "LegacyHistoryMigrated",
+        "Entry", "Data", "DataRevision", "Title", "Author", "FilePath", "Tags", "Series", "ReadingStatus", "LastReadUtc", "BookKey", "Locator",
+        "ChapterIndex", "BlockIndex", "Fraction", "Bookmarks", "Label", "CreatedUtc", "Id", "ResourcePath", "Range", "Color", "Note", "UpdatedUtc",
+        "Start", "End", "Text", "Paragraph", "Offset", "Quote", "Before", "After", "Theme", "Font", "FontSize", "LineSpacing", "TextWidth",
+        "SidebarVisible", "ParagraphSpacing", "FirstLineIndent", "Alignment"];
+
     internal static void Check(ReadOnlySpan<byte> bytes)
     {
         var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = 20 });
         var arrays = new Dictionary<int, (int Maximum, int Count, int StringMaximum)>();
+        Span<ulong> properties = stackalloc ulong[21];
+        properties.Clear();
         int arrayMaximum = 0, stringMaximum = 0, elementMaximum = 0;
         while (reader.Read())
         {
+            if (reader.TokenType == JsonTokenType.StartObject) properties[reader.CurrentDepth] = 0;
             if (reader.TokenType == JsonTokenType.PropertyName)
             {
+                for (int i = 0; i < Properties.Length; i++)
+                    if (reader.ValueTextEquals(Properties[i]))
+                    {
+                        ulong bit = 1UL << i;
+                        int depth = reader.CurrentDepth - 1;
+                        if ((properties[depth] & bit) != 0) throw new InvalidDataException("数据包含重复属性：" + Properties[i]);
+                        properties[depth] |= bit; break;
+                    }
                 arrayMaximum = reader.ValueTextEquals("Books"u8) ? BookDataRules.MaxBooks : reader.ValueTextEquals("Annotations"u8) ? BookDataRules.MaxAnnotations :
                     reader.ValueTextEquals("Bookmarks"u8) ? 64 : reader.ValueTextEquals("Tags"u8) ? 16 : 0;
                 stringMaximum = reader.ValueTextEquals("Note"u8) ? 2000 : reader.ValueTextEquals("Text"u8) ? 4096 :

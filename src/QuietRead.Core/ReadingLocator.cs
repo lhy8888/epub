@@ -27,14 +27,17 @@ public static class TextLocation
         int windowStart = Math.Max(0, logicalOffset - 18);
         string text = Slice(chapter, start, windowStart, 84);
         int at = logicalOffset - windowStart;
-        int quoteEnd = Boundary(text, Math.Min(text.Length, at + 48));
+        int quoteEnd = Math.Max(at, Boundary(text, Math.Min(text.Length, at + 48)));
         int before = Math.Max(0, at - 16);
         if (before < text.Length && char.IsLowSurrogate(text[before])) before++;
-        int after = Boundary(text, Math.Min(text.Length, quoteEnd + 16));
+        int after = Math.Max(quoteEnd, Boundary(text, Math.Min(text.Length, quoteEnd + 16)));
         return new ReadingLocator(paragraph, logicalOffset, text[at..quoteEnd], text[before..at], text[quoteEnd..after]);
     }
 
     public static (int Block, int Offset)? Resolve(ParsedChapter chapter, ReadingLocator? locator, CancellationToken token = default)
+        => Resolve(chapter, locator, new LocatorWorkBudget(), token);
+
+    internal static (int Block, int Offset)? Resolve(ParsedChapter chapter, ReadingLocator? locator, LocatorWorkBudget budget, CancellationToken token)
     {
         if (ReadingLocator.Normalize(locator) is not { } value) return null;
         int paragraph = 0;
@@ -61,43 +64,37 @@ public static class TextLocation
         (int Block, int Offset)? candidate = null;
         // A parser migration may move a logical paragraph. Only a unique quote
         // with its context is safe to recover; repeated sentences are ambiguous.
-        for (int start = 0; start < chapter.Blocks.Count;)
+        Span<char> buffer = stackalloc char[ChapterText.BufferCharacters];
+        for (int block = 0; block < chapter.Blocks.Count; block++)
         {
             token.ThrowIfCancellationRequested();
-            string text = ParagraphText(chapter, start, out int end);
-            int at = 0;
+            if (!budget.Spend(Length(chapter.Blocks[block]) + 160)) return null;
+            ReadOnlySpan<char> text = ChapterText.CopyContext(chapter, block, buffer, 80, out int prefix, out int length);
+            int at = prefix;
             while (at <= text.Length - value.Quote.Length)
             {
                 token.ThrowIfCancellationRequested();
-                int found = text.IndexOf(value.Quote, at, StringComparison.Ordinal);
-                if (found < 0) break;
+                int next = text[at..].IndexOf(value.Quote, StringComparison.Ordinal);
+                if (next < 0) break;
+                int found = at + next;
+                if (found >= prefix + length) break;
+                if (!budget.Spend(value.Before.Length + value.Quote.Length + value.After.Length + 1)) return null;
                 if (Matches(text, found, value))
                 {
                     if (candidate != null) return null;
-                    candidate = ToBlock(chapter, start, end, found);
+                    candidate = (block, found - prefix);
                 }
                 at = found + 1;
             }
-            start = end;
         }
         return candidate;
     }
 
-    private static bool Matches(string text, int offset, ReadingLocator value) =>
+    private static bool Matches(ReadOnlySpan<char> text, int offset, ReadingLocator value) =>
         offset >= value.Before.Length && offset + value.Quote.Length + value.After.Length <= text.Length &&
-        text.AsSpan(offset - value.Before.Length, value.Before.Length).SequenceEqual(value.Before) &&
-        text.AsSpan(offset, value.Quote.Length).SequenceEqual(value.Quote) &&
-        text.AsSpan(offset + value.Quote.Length, value.After.Length).SequenceEqual(value.After);
-
-    private static string ParagraphText(ParsedChapter chapter, int start, out int end)
-    {
-        end = start + 1;
-        while (end < chapter.Blocks.Count && chapter.Blocks[end].ContinuesPrevious) end++;
-        if (end == start + 1) return chapter.Blocks[start].PlainText;
-        var text = new System.Text.StringBuilder();
-        for (int i = start; i < end; i++) foreach (BookInline inline in chapter.Blocks[i].Inlines) text.Append(inline.Text);
-        return text.ToString();
-    }
+        text.Slice(offset - value.Before.Length, value.Before.Length).SequenceEqual(value.Before) &&
+        text.Slice(offset, value.Quote.Length).SequenceEqual(value.Quote) &&
+        text.Slice(offset + value.Quote.Length, value.After.Length).SequenceEqual(value.After);
 
     private static (int Block, int Offset) ToBlock(ParsedChapter chapter, int start, int end, int offset)
     {
@@ -120,7 +117,8 @@ public static class TextLocation
         return offset;
     }
 
-    private static int Length(BookBlock block) => block.Inlines.Sum(inline => inline.Text.Length);
+    private static int Length(BookBlock block)
+    { int length = 0; for (int i = 0; i < block.Inlines.Count; i++) length += block.Inlines[i].Text.Length; return length; }
 
     private static string Slice(ParsedChapter chapter, int start, int offset, int count)
     {
@@ -137,4 +135,13 @@ public static class TextLocation
         // surrogate pair/combining mark without retaining an entire paragraph.
         return text.ToString();
     }
+}
+
+// Shared across all annotation endpoints in one view preparation. It bounds
+// failed scans and candidate verification, while precise addresses remain usable.
+internal sealed class LocatorWorkBudget
+{
+    private int _remaining = ReaderLimits.ChapterCharacters * 8;
+    internal bool Spend(int units)
+    { if (units > _remaining) return false; _remaining -= units; return true; }
 }

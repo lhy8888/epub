@@ -35,7 +35,9 @@ public sealed record ImportPreview(int NewBooks, int ExistingBooks, IReadOnlyLis
 public static class BookDataRules
 {
     public const int MaxAnnotations = 128;
-    public const int MaxBookBytes = 2 * 1024 * 1024;
+    // Cover all 128 annotations at their legal field maxima, including JSON
+    // escaping, two locator contexts, resource paths and 64 bookmarks.
+    public const int MaxBookBytes = 8 * 1024 * 1024;
     public const int MaxCatalogBytes = 4 * 1024 * 1024;
     public const int MaxBackupBytes = 16 * 1024 * 1024;
     public const int MaxBooks = 1000;
@@ -79,14 +81,14 @@ public static class BookDataRules
     {
         Validate(data);
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(data, Json);
-        if (bytes.Length > MaxBookBytes) throw new InvalidDataException("单书数据超过 2 MiB。");
+        if (bytes.Length > MaxBookBytes) throw new InvalidDataException("单书数据超过 8 MiB。");
         DataJsonBudget.Check(bytes);
         return bytes;
     }
 
     public static BookData Parse(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length > MaxBookBytes) throw new InvalidDataException("单书数据超过 2 MiB。");
+        if (bytes.Length > MaxBookBytes) throw new InvalidDataException("单书数据超过 8 MiB。");
         DataJsonBudget.Check(bytes);
         BookData data = JsonSerializer.Deserialize<BookData>(bytes, Json) ?? throw new InvalidDataException("逐书数据为空。");
         Validate(data); return data;

@@ -47,7 +47,7 @@ public partial class MainWindow
             return true;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        { ShowSaveFailure(); return false; }
+        { ShowSaveFailure(error); return false; }
     }
 
     internal bool TryFlushReadingData()
@@ -64,13 +64,14 @@ public partial class MainWindow
             SaveStatusText.Text = "已保存"; RetrySaveButton.Visibility = Visibility.Collapsed; return true;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        { ShowSaveFailure(); return false; }
+        { ShowSaveFailure(error); return false; }
     }
 
-    private void ShowSaveFailure()
+    private void ShowSaveFailure(Exception? error = null)
     {
         if (_closed) return;
-        _dirty = true; SaveStatusText.Text = "保存失败，请检查磁盘和写入权限";
+        _dirty = true;
+        SaveStatusText.Text = error is InvalidDataException or JsonException ? "保存失败：" + error.Message : "保存失败，请检查磁盘和写入权限";
         RetrySaveButton.Visibility = Visibility.Visible; Announce(SaveStatusText);
     }
     private async void RetrySave_Click(object sender, RoutedEventArgs e) => await SaveReadingDataAsync(force: true);
@@ -79,26 +80,31 @@ public partial class MainWindow
 
     private async void Library_Click(object sender, RoutedEventArgs e)
     {
-        if (!await SaveReadingDataAsync()) return;
+        if (!await SaveReadingDataAsync() || _closed) return;
         _saveTimer.Stop();
         try
         {
             await _libraryReady;
+            if (_closed) return;
             var dialog = new LibraryWindow(_library) { Owner = this }; dialog.ShowDialog();
             if (_closed) return;
             _state.Books.RemoveAll(b => dialog.Removed.Contains(b.BookKey)); RefreshRecent();
             if (dialog.Removed.Count > 0) ScheduleSave();
             if (_bookData != null && dialog.Removed.Contains(_bookData.BookId))
-            { _bookData = null; _history = null; ScheduleSave(); HomeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
+            { _bookData = null; _history = null; ScheduleSave(); if (!await GoHomeAsync()) return; }
             if (dialog.Imported && _bookData != null)
             {
                 string id = _bookData.BookId;
-                _bookData = await Task.Run(() => _library.LoadBook(id)); _history = _bookData.History;
+                EpubBook? book = _book;
+                BookData loaded = await Task.Run(() => _library.LoadBook(id));
+                if (_closed || book != _book || _bookData?.BookId != id) return;
+                _bookData = loaded; _history = _bookData.History;
                 _libraryVersion = _library.ChangeVersion;
                 _state.Books.RemoveAll(b => b.BookKey == id); _state.Books.Insert(0, _history); RefreshRecent();
                 RefreshBookmarks(); RefreshAnnotations(); LoadAppearanceControls(); ApplyTheme(Preferences.Theme);
                 await NavigateAsync(_history.ChapterIndex, _history.BlockIndex, _history.Fraction, locator: _history.Locator, addHistory: false, saveCurrent: false);
             }
+            if (_closed) return;
             _libraryVersion = _library.ChangeVersion;
             if (dialog.OpenPath is string path) await OpenBookAsync(path, dialog.AssociateId);
         }
@@ -126,19 +132,42 @@ public partial class MainWindow
     internal async Task AddAnnotationAsync(string note = "")
     {
         if (_bookData == null || _chapter == null || _book == null || _busy || Reader.Selection.IsEmpty) return;
+        EpubBook book = _book; ParsedChapter chapter = _chapter; BookData data = _bookData;
+        int generation = _readGeneration, index = _chapterIndex;
+        CancellationToken token = _readToken?.Token ?? _lifetime.Token;
+        int busy = BeginBusy("正在处理选区…");
         try
         {
             if (_bookData.Annotations.Count >= BookDataRules.MaxAnnotations) throw new InvalidDataException("每本书最多保存 128 条批注。");
             var start = DocumentPosition.Read(_renderedBlocks, Reader.Selection.Start);
             var end = DocumentPosition.Read(_renderedBlocks, Reader.Selection.End);
             if (start == null || end == null) throw new InvalidDataException("请在当前正文中选择文字。");
-            TextRangeLocator range = TextRangeLocation.Capture(_chapter, start.Value.Block, start.Value.Offset, end.Value.Block, end.Value.Offset);
             string color = (AnnotationColorCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "Yellow";
-            var a = new BookAnnotation(Guid.NewGuid(), _chapterIndex, _book.Chapters[_chapterIndex].Path, range, color, note, DateTime.UtcNow, DateTime.UtcNow);
-            _bookData.Annotations.Add(a); RefreshAnnotations(a.Id); ScheduleSave();
-            await RefreshAnnotationDocumentAsync(); StatusText.Text = "已添加高亮，可在批注中编辑笔记。";
+            TextRangeLocator range = await RunBoundedWorkAsync(_readingWork, () => TextRangeLocation.Capture(chapter,
+                start.Value.Block, start.Value.Offset, end.Value.Block, end.Value.Offset, token), token);
+            if (_closed || token.IsCancellationRequested || generation != _readGeneration || book != _book || data != _bookData) return;
+            DateTime now = DateTime.UtcNow;
+            var a = new BookAnnotation(Guid.NewGuid(), index, book.Chapters[index].Path, range, color, note, now, now);
+            CommitAnnotationChange(data.Annotations.Append(a).ToList()); RefreshAnnotations(a.Id); ScheduleSave();
+            await RefreshAnnotationDocumentAsync();
+            if (!_closed && book == _book && data == _bookData) StatusText.Text = "已添加高亮，可在批注中编辑笔记。";
         }
-        catch (InvalidDataException error) { StatusText.Text = error.Message; }
+        catch (OperationCanceledException) { }
+        catch (InvalidDataException error) { if (!_closed) StatusText.Text = error.Message; }
+        finally { EndBusy(busy); }
+    }
+
+    private void CommitAnnotationChange(List<BookAnnotation> annotations)
+    {
+        if (_bookData == null) return;
+        _ = BookDataRules.Snapshot(new BookData
+        {
+            BookId = _bookData.BookId,
+            History = _bookData.History,
+            Appearance = _bookData.Appearance,
+            Annotations = annotations
+        });
+        _bookData.Annotations = annotations;
     }
     private async void AddAnnotation_Click(object sender, RoutedEventArgs e) => await AddAnnotationAsync();
     private async Task RefreshAnnotationDocumentAsync()
@@ -149,9 +178,18 @@ public partial class MainWindow
     private async void SaveAnnotation_Click(object sender, RoutedEventArgs e)
     {
         if (_bookData == null || AnnotationsList.SelectedItem is not BookAnnotation a || _busy) return;
-        BookAnnotation changed = a with { Note = AnnotationNoteBox.Text, Color = (string)((ComboBoxItem)AnnotationColorCombo.SelectedItem).Tag, UpdatedUtc = DateTime.UtcNow };
+        DateTime now = DateTime.UtcNow;
+        BookAnnotation changed = a with
+        {
+            Note = AnnotationNoteBox.Text,
+            Color = (string)((ComboBoxItem)AnnotationColorCombo.SelectedItem).Tag,
+            UpdatedUtc = now < a.UpdatedUtc ? a.UpdatedUtc : now
+        };
         int index = _bookData.Annotations.FindIndex(n => n.Id == a.Id); if (index < 0) return;
-        _bookData.Annotations[index] = changed; RefreshAnnotations(changed.Id); ScheduleSave(); await RefreshAnnotationDocumentAsync();
+        var annotations = _bookData.Annotations.ToList(); annotations[index] = changed;
+        try { CommitAnnotationChange(annotations); }
+        catch (InvalidDataException error) { StatusText.Text = error.Message; return; }
+        RefreshAnnotations(changed.Id); ScheduleSave(); await RefreshAnnotationDocumentAsync();
     }
     private async void DeleteAnnotation_Click(object sender, RoutedEventArgs e)
     {

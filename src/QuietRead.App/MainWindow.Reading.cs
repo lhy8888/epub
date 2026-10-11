@@ -161,8 +161,10 @@ public partial class MainWindow
 
     private void SystemSettingsChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(SystemParameters.HighContrast)) Dispatcher.InvokeAsync(() => ApplyTheme(_state.Preferences.Theme));
+        if (e.PropertyName == nameof(SystemParameters.HighContrast)) Dispatcher.InvokeAsync(RefreshSystemTheme);
     }
+
+    internal void RefreshSystemTheme() { if (!_closed) ApplyTheme(Preferences.Theme); }
 
     private void Reader_SizeChanged(object sender, SizeChangedEventArgs e)
     {

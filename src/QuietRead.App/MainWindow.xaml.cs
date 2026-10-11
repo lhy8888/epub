@@ -61,7 +61,7 @@ public partial class MainWindow : Window
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         _saveTimer.Tick += SaveTimer_Tick;
         _appearanceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        _appearanceTimer.Tick += (_, _) => { _appearanceTimer.Stop(); ApplyTypography(); ScheduleSave(); };
+        _appearanceTimer.Tick += (_, _) => { _appearanceTimer.Stop(); if (!_closed) ApplyTypography(); };
         _resizeTimer.Tick += (_, _) =>
         {
             _resizeTimer.Stop();
@@ -108,6 +108,7 @@ public partial class MainWindow : Window
     {
         if (_closed) return;
         if (_bookData != null && !await SaveReadingDataAsync()) return;
+        if (_closed) return;
         try { path = LocalFile(path); }
         catch (Exception exception) when (exception is EpubException or ArgumentException or IOException or UnauthorizedAccessException)
         { ShowError(exception.Message); return; }
@@ -459,6 +460,7 @@ public partial class MainWindow : Window
         Preferences.FirstLineIndent = IndentSlider.Value;
         IndentLabel.Text = Preferences.FirstLineIndent < 0 ? "遵循来源" : Preferences.FirstLineIndent.ToString("0.#", CultureInfo.InvariantCulture) + " em";
         FontSizeLabel.Text = FontSizeSlider.Value.ToString("0", CultureInfo.InvariantCulture);
+        ScheduleSave();
         _appearanceTimer.Stop(); _appearanceTimer.Start();
     }
 
@@ -576,12 +578,16 @@ public partial class MainWindow : Window
     private async void Recent_Click(object sender, RoutedEventArgs e)
     { if ((sender as FrameworkElement)?.DataContext is BookHistory history) await OpenBookAsync(history.FilePath); }
 
-    private async void Home_Click(object sender, RoutedEventArgs e)
+    private async void Home_Click(object sender, RoutedEventArgs e) => await GoHomeAsync();
+
+    internal async Task<bool> GoHomeAsync()
     {
+        if (_closed) return false;
         CapturePosition(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         _openGeneration++; _readGeneration++; _busyGeneration++; _restoring = false;
-        _busy = false; Reader.IsEnabled = true; UpdateButtons();
-        if (!await SaveReadingDataAsync()) return;
+        CloseFootnote(); _searchGeneration++; _searching = false;
+        _busy = false; BusyBar.Visibility = Visibility.Hidden; Cursor = null; Reader.IsEnabled = true; UpdateButtons();
+        if (!await SaveReadingDataAsync() || _closed) return false;
         CapturePosition(); Cancel(ref _openToken); Cancel(ref _readToken); Cancel(ref _searchToken);
         CloseFootnote(); _resizeTimer.Stop(); _layoutLocator = null;
         _back.Clear(); _forward.Clear(); _searchHits = Array.Empty<SearchHit>(); _searchIndex = -1; _searchOrigin = null;
@@ -599,6 +605,7 @@ public partial class MainWindow : Window
         _busy = false; BusyBar.Visibility = Visibility.Hidden; Reader.IsEnabled = true; Cursor = null;
         RefreshRecent(); UpdateButtons(); ScheduleSave(); StatusText.Text = "就绪";
         if (book != null) _ = Task.Run(book.Dispose);
+        return true;
     }
 
     private void RefreshRecent()
