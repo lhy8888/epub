@@ -12,7 +12,7 @@ def main():
         command = ["dotnet", "build", "src/QuietRead.iOS", "-c", "Release", "--no-restore", "-r", rid,
                    "-p:EnableCodeSigning=false", "-p:RestoreLockedMode=true", "-p:OutputPath=../../artifacts/ios-" + flavor + "/"]
         if flavor == "restore":
-            command = ["dotnet", "restore", "src/QuietRead.iOS", "--force-evaluate"]
+            command = ["dotnet", "restore", "src/QuietRead.iOS", "--locked-mode"]
         lines = []
         with subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
             for line in process.stdout:
