@@ -114,7 +114,9 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
           xcrun --find install_name_tool
           xcodebuild -version
-          dotnet workload install ios --version ios@26.2.10233
+          dotnet workload install ios --version 10.0.106
+          dotnet workload list
+          test "$(dotnet workload --version)" = 10.0.106
       - name: Restore iOS dependencies
         run: python3 tools/build_ios.py --restore
       - name: Record resolved iOS dependency lock
