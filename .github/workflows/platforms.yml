@@ -115,7 +115,7 @@ jobs:
       - name: Restore iOS dependencies
         run: dotnet restore src/QuietRead.iOS --locked-mode
       - name: Record resolved iOS dependency lock
-        run: python3 -c 'import json; print("::notice title=iOS dependency lock::" + json.dumps(json.load(open("src/QuietRead.iOS/packages.lock.json")), separators=(",", ":")))'
+        run: python3 -c 'import base64,gzip; print("::notice title=iOS dependency lock::" + base64.b64encode(gzip.compress(open("src/QuietRead.iOS/packages.lock.json", "rb").read())).decode())'
       - name: Compile simulator and unsigned device application
         run: |
           dotnet build src/QuietRead.iOS -c Release --no-restore -r iossimulator-arm64 -p:EnableCodeSigning=false -p:RestoreLockedMode=true -p:OutputPath=../../artifacts/ios-simulator/
