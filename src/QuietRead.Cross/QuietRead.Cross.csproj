@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="RuntimeIdentifier;RuntimeIdentifiers;SelfContained">
+  <PropertyGroup>
+    <RuntimeIdentifier></RuntimeIdentifier><RuntimeIdentifiers></RuntimeIdentifiers><SelfContained>false</SelfContained><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <ProjectReference GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained" Include="../QuietRead.Core/QuietRead.Core.csproj" />
+  </ItemGroup>
+</Project>

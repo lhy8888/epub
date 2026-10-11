@@ -27,7 +27,7 @@ def main():
                 elif name.rsplit("}", 1)[-1] in {"Text", "Content", "Header", "ToolTip", "AutomationProperties.Name", "Title"} and CJK.search(value):
                     if value != "简体中文":  # Native language names stay recognizable.
                         errors.append(f"Unlocalized XAML text: {path.name}: {value}")
-    for path in (ROOT / "src/QuietRead.App").glob("*.cs"):
+    for path in [*(ROOT / "src/QuietRead.App").glob("*.cs"), *(ROOT / "src/QuietRead.Cross").glob("*.cs")]:
         text = path.read_text()
         # Fold adjacent literal strings, such as the multiline help message.
         text = re.sub(STRING + r'(?:\s*\+\s*' + STRING + r')+',
@@ -35,7 +35,7 @@ def main():
         for match in re.finditer(STRING, text):
             source = json.loads(match[0])
             if CJK.search(source) and source not in catalog:
-                if source in {"请选择 ", " 文件。"}:  # LocalFilePath error template, covered by Error().
+                if source in {"请选择 ", " 文件。", "简体中文"}:  # LocalFilePath error template, covered by Error().
                     continue
                 errors.append(f"Missing C# translation: {path.name}: {source}")
     if errors:

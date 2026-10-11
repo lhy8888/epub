@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <AssemblyName>QuietRead.Desktop</AssemblyName><PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <ProjectReference GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained" Include="../QuietRead.Cross/QuietRead.Cross.csproj" />
+  </ItemGroup>
+</Project>

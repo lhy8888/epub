@@ -10,7 +10,6 @@
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <Version>0.1.0</Version>
     <Authors>QuietRead contributors</Authors>
   </PropertyGroup>

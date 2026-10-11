@@ -20,6 +20,13 @@ def main():
     if not files:
         raise ValueError("No tracked source files; run git add before checking locally.")
     errors = []
+    dependencies = {
+        "src/QuietRead.Cross/QuietRead.Cross.csproj": {"Avalonia", "Avalonia.Themes.Fluent"},
+        "src/QuietRead.Desktop/QuietRead.Desktop.csproj": {"Avalonia.Desktop"},
+        "src/QuietRead.Android/QuietRead.Android.csproj": {"Avalonia.Android"},
+        "src/QuietRead.iOS/QuietRead.iOS.csproj": {"Avalonia.iOS"},
+        "tests/QuietRead.CrossTests/QuietRead.CrossTests.csproj": {"Avalonia.Headless"},
+    }
     forbidden = {"bin", "obj", ".vs", "release", "artifacts", "TestResults", "__pycache__"}
     private = re.compile(r"(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})")
     for name in files:
@@ -35,8 +42,9 @@ def main():
             errors.append(f"Possible private key or GitHub credential: {name}")
         if name.endswith(".csproj"):
             project = ET.fromstring(text)
-            if project.findall(".//PackageReference"):
-                errors.append(f"A new NuGet dependency needs a documented policy change: {name}")
+            for reference in project.findall(".//PackageReference"):
+                if reference.get("Include") not in dependencies.get(name, set()) or reference.get("Version") != "11.3.22":
+                    errors.append(f"Dependency outside the documented pinned Avalonia policy: {name}: {reference.attrib}")
         if name.startswith(".github/workflows/"):
             for action in re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", text, re.MULTILINE):
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}", action):

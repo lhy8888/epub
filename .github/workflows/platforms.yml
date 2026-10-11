@@ -1,0 +1,148 @@
+name: Platform builds
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: platforms-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  NUGET_XMLDOC_MODE: skip
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-15
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Core and shared interface regression tests
+        run: |
+          dotnet run --project tests/QuietRead.Tests -c Release -p:RestoreLockedMode=true -- --validate samples/QuietRead-Guide.epub --report artifacts/core-platform.json
+          dotnet run --project tests/QuietRead.CrossTests -c Release -p:RestoreLockedMode=true -- artifacts/cross-tests.json
+      - name: Publish native self-contained desktop package
+        run: python3 tools/package_desktop.py --rid ${{ matrix.rid }}
+      - name: Start published reader and render an actual window
+        shell: bash
+        env:
+          BUILD_RID: ${{ matrix.rid }}
+        run: |
+          executable="artifacts/desktop-$BUILD_RID/publish/QuietRead.Desktop"
+          if [[ "$BUILD_RID" = linux-* ]]; then
+            xvfb-run -a "$executable" --smoke samples/QuietRead-Guide.epub artifacts/desktop-smoke.json
+          else
+            "$executable" --smoke samples/QuietRead-Guide.epub artifacts/desktop-smoke.json
+          fi
+          python3 -c 'import json; assert json.load(open("artifacts/desktop-smoke.json"))["Passed"]'
+      - name: Save platform package, checksum, reports and screenshot
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: QuietRead-${{ matrix.rid }}
+          path: |
+            artifacts/desktop-${{ matrix.rid }}/*.tar.gz
+            artifacts/desktop-${{ matrix.rid }}/*.sha256
+            artifacts/core-platform.json
+            artifacts/cross-tests.json
+            artifacts/desktop-smoke.json
+            artifacts/desktop-smoke.png
+          if-no-files-found: error
+          retention-days: 30
+  android:
+    name: Android APK (arm64 and x64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Install pinned .NET Android workload
+        run: dotnet workload install android --skip-manifest-update
+      - name: Restore and compile installable development APK
+        run: |
+          dotnet restore src/QuietRead.Android --locked-mode
+          dotnet publish src/QuietRead.Android -c Release --no-restore -p:JavaSdkDirectory="$JAVA_HOME_21_X64" -p:AndroidKeyStore=false -o artifacts/android
+      - name: Verify APK permissions and archive
+        run: python3 tools/check_mobile_package.py android artifacts/android
+      - name: Save development APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: QuietRead-Android-development
+          path: |
+            artifacts/android/*-Signed.apk
+            artifacts/android/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+  ios:
+    name: iOS simulator and device compilation
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Select Xcode 26 and install pinned .NET iOS workload
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.0.app/Contents/Developer
+          xcodebuild -version
+          dotnet workload install ios --skip-manifest-update
+      - name: Restore iOS dependencies
+        run: dotnet restore src/QuietRead.iOS --locked-mode
+      - name: Record resolved iOS dependency lock
+        run: python3 -c 'import json; print("::notice title=iOS dependency lock::" + json.dumps(json.load(open("src/QuietRead.iOS/packages.lock.json")), separators=(",", ":")))'
+      - name: Compile simulator and unsigned device application
+        run: |
+          dotnet build src/QuietRead.iOS -c Release --no-restore -r iossimulator-arm64 -p:EnableCodeSigning=false -p:RestoreLockedMode=true -p:OutputPath=../../artifacts/ios-simulator/
+          dotnet build src/QuietRead.iOS -c Release --no-restore -r ios-arm64 -p:EnableCodeSigning=false -p:RestoreLockedMode=true -p:OutputPath=../../artifacts/ios-device/
+      - name: Verify and archive iOS applications
+        run: python3 tools/check_mobile_package.py ios artifacts
+      - name: Save simulator app and unsigned device app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: QuietRead-iOS-builds
+          path: |
+            artifacts/QuietRead-ios-*.tar.gz
+            artifacts/QuietRead-ios-*.sha256
+          if-no-files-found: error
+          retention-days: 30
+  platform-checks:
+    name: All platform builds
+    if: always()
+    needs: [desktop, android, ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          DESKTOP: ${{ needs.desktop.result }}
+          ANDROID: ${{ needs.android.result }}
+          IOS: ${{ needs.ios.result }}
+        run: |
+          test "$DESKTOP" = success
+          test "$ANDROID" = success
+          test "$IOS" = success

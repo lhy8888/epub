@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0-android</TargetFramework>
+    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <SupportedOSPlatformVersion>23</SupportedOSPlatformVersion>
+    <ApplicationId>io.github.lhy8888.quietread</ApplicationId>
+    <ApplicationTitle>QuietRead</ApplicationTitle><ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <AndroidPackageFormats>apk</AndroidPackageFormats><AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <PublishTrimmed>false</PublishTrimmed><JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Android" Version="11.3.22" />
+    <ProjectReference GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained" Include="../QuietRead.Cross/QuietRead.Cross.csproj" />
+  </ItemGroup>
+</Project>

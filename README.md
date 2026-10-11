@@ -1,8 +1,8 @@
 # QuietRead · 静读
 
-面向 **Windows 11 x64** 的本地 EPUB 阅读器，使用原生 WPF 界面，提供续读、书签、高亮笔记与长期书库。
+面向 **Windows、macOS、Linux、Android 和 iOS** 的本地 EPUB 阅读器，提供续读、书签、高亮笔记与长期书库。Windows 保留 WPF 界面，其余平台使用 Avalonia 共享界面。
 
-本地离线 · 解压即用 · 无账号 · 无广告 · 无遥测
+本地离线 · 无账号 · 无广告 · 无遥测
 
 [![Build](https://github.com/lhy8888/epub/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lhy8888/epub/actions/workflows/ci.yml)
 [![Security](https://github.com/lhy8888/epub/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/lhy8888/epub/actions/workflows/security.yml)
@@ -22,7 +22,21 @@
 
 Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供未签名的 Windows x64 便携包；正式版本发布后可从 [Releases](https://github.com/lhy8888/epub/releases) 下载。
 
-## 当前功能
+## 跨平台构建
+
+[Platform builds](https://github.com/lhy8888/epub/actions/workflows/platforms.yml) 分别编译 macOS Intel / Apple Silicon、Linux x64、Android ARM64 / x64 和 iOS。Windows 编译与实窗测试继续由 Build and checks 执行。平台支持状态以对应提交的成功任务为准。
+
+| 平台 | 构建产物及使用边界 |
+| --- | --- |
+| Windows 11 x64 | 原有自包含 WPF 便携 ZIP，可直接运行 |
+| macOS 13+ | `QuietRead-osx-x64` / `QuietRead-osx-arm64` 中的 `.app.tar.gz`；未签名、未公证 |
+| Linux x64 | `QuietRead-linux-x64` 中的自包含 `.tar.gz`；需要图形会话、fontconfig 和系统字体 |
+| Android 6+ | `QuietRead-Android-development` 中的开发签名 APK，支持 ARM64 / x64；正式发布需要固定签名密钥 |
+| iOS 15+ | `QuietRead-iOS-builds` 中的模拟器应用和未签名 ARM64 设备应用；真机安装与 TestFlight 需要 Apple 签名和描述文件 |
+
+共享界面提供本地 EPUB 导入、文字与图片阅读、目录／书内链接／脚注、滚动与长章分段、可取消搜索、书签、单段选区高亮和笔记、元数据、JSON 迁移、Markdown 摘录、主题／字号／行距／宽度／单书外观及中英文切换。小屏使用折叠工具面板，按钮自动换行。Windows 下表中的高级排版、目录折叠、多段选区及系统专用无障碍行为继续保留在 WPF 版；共享版的具体实现范围和命令见 [跨平台说明](docs/CROSS-PLATFORM.md)。
+
+## Windows 当前功能
 
 | 功能 | 支持内容 |
 | --- | --- |
@@ -86,7 +100,7 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 
 ## 从源码构建
 
-使用 [global.json](global.json) 指定的 **.NET SDK 10.0.401**（允许同一功能带补丁更新）。Python 3.11+ 用于仓库检查、示例和打包，无需 Node.js 或第三方 NuGet 包。Linux 可执行核心测试及交叉编译；运行 WPF 和打包验证请使用 Windows。
+使用 [global.json](global.json) 指定的 **.NET SDK 10.0.401**（允许同一功能带补丁更新）。Python 3.11+ 用于仓库检查、示例和打包，无需 Node.js。共享界面使用锁定的 Avalonia 11.3.22 NuGet 包；Android 另需 .NET Android 工作负载、Android SDK 和 JDK，iOS 需要 macOS、Xcode 26 和 .NET iOS 工作负载。运行 WPF 和其打包验证请使用 Windows。
 
 ```powershell
 git clone https://github.com/lhy8888/epub.git
@@ -106,7 +120,7 @@ Windows 上生成包含运行时的便携包：
 
 ## 测试与验证
 
-当前回归包含 **100 项核心/安全测试和 45 项 Windows WPF 实窗测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
+当前回归包含 **100 项核心/安全测试、45 项 Windows WPF 实窗测试和 9 项共享界面／私有存储测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
 
 ```powershell
 # Linux / Windows：核心、安全、示例兼容性及基准
@@ -115,13 +129,15 @@ dotnet run --project tests/QuietRead.Tests -c Release --no-restore -- --benchmar
 # Windows：真实 WPF 窗口测试及截图
 dotnet run --project tests/QuietRead.UiTests -c Release --no-restore -- samples/QuietRead-Guide.epub artifacts/ui-tests.json artifacts/windows-smoke.png
 
+dotnet run --project tests/QuietRead.CrossTests -c Release -- artifacts/cross-tests.json
+
 python tools/check_repository.py
 python tools/check_localization.py
 dotnet format whitespace QuietRead.sln --no-restore --verify-no-changes
 python tools/check_dependencies.py --report artifacts/dependencies.json
 ```
 
-两个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与中英文截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；语言功能见 [中英文界面说明](docs/LOCALIZATION.md)，安全、性能、保存及异步路径修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
+三个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与中英文截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；语言功能见 [中英文界面说明](docs/LOCALIZATION.md)，安全、性能、保存及异步路径修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
 
 Windows 11 真机的 Narrator/NVDA、多 DPI、实际高对比切换、睡眠恢复和长期滚动/工作集表现仍需人工验收。
 

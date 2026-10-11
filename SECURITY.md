@@ -28,7 +28,7 @@ ZIP/XML/图像处理仍依赖 .NET 与 Windows 原生组件。应用不是 AppCo
 
 ## 构建和供应链
 
-- 生产源码没有显式第三方 NuGet 包引用；官方 .NET/Windows Desktop 引用包与运行时通过 HTTPS 获取。
+- 核心和 WPF 界面依赖官方 .NET 平台；共享界面的 Avalonia 包固定版本并锁定传递依赖，见 [依赖说明](docs/THIRD-PARTY-NOTICES.md)。引用包和运行时通过 HTTPS 获取。
 - 依赖锁文件、NuGet 漏洞审计、C# 安全分析器、恶意 EPUB 回归测试和 CodeQL 共同提供自动化检查。
 - Actions 使用完整提交 SHA、最小权限，不保留 checkout 凭据，不通过 PR 运行拥有发布权限的任务。
 - CodeQL 结果在 Security 页面查看；错误与安全分值 ≥7 的发现会阻断扫描检查，其他发现仍需维护者处理。工作流成功不等于没有安全发现。

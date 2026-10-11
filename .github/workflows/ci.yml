@@ -71,12 +71,16 @@ jobs:
       - run: dotnet restore tests/QuietRead.Tests/QuietRead.Tests.csproj --locked-mode
       - name: Execute core tests, malicious fixtures, sample and benchmarks
         run: dotnet run --project tests/QuietRead.Tests --configuration Release --no-restore -- --benchmark --validate samples/QuietRead-Guide.epub --report artifacts/core-tests.json
+      - name: Execute shared interface and private storage regression tests
+        run: dotnet run --project tests/QuietRead.CrossTests --configuration Release -p:RestoreLockedMode=true -- artifacts/cross-tests.json
       - name: Save detailed test and benchmark report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: core-tests-${{ matrix.os }}
-          path: artifacts/core-tests.json
+          path: |
+            artifacts/core-tests.json
+            artifacts/cross-tests.json
           if-no-files-found: error
           retention-days: 14
 

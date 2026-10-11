@@ -7,7 +7,7 @@
 - Windows 11 x64 适合开发和人工验收 WPF 界面。Linux 可开发/运行核心、编译 Windows 目标。
 - 使用 `global.json` 中的 .NET SDK；当前是 10.0.401，允许同一功能带的补丁更新。
 - Python 3.11 或更新版本用于示例书、仓库检查和 ZIP 打包；脚本只用标准库。
-- 不需要安装第三方 NuGet 包或 Node.js。
+- 不需要 Node.js；Avalonia 共享界面通过锁文件还原 NuGet 包，移动构建要求见 [跨平台说明](docs/CROSS-PLATFORM.md)。
 
 ## 开发流程
 
@@ -42,7 +42,7 @@ dotnet run --project tests/QuietRead.UiTests -c Release -- samples/QuietRead-Gui
 - 界面只接收受控的正文模型，不增加脚本执行、动态 XAML、任意 URL 打开或自动联网。
 - 解析、解码和搜索放在工作线程；任何新异步操作都要处理取消、窗口关闭和换书。
 - 测试与示例书只使用原创或允许公开分发的内容；不要上传自己的付费 EPUB、阅读记录或私钥。
-- 当前无显式 NuGet 包引用。新增依赖需要说明用途、许可证和供应链影响，并同步调整源码检查政策与锁文件。
+- 允许固定版本的 Avalonia 直接依赖，具体许可与策略见 [第三方说明](docs/THIRD-PARTY-NOTICES.md)。新增依赖需要说明用途、许可证和供应链影响，并同步调整源码检查政策与锁文件。
 
 ## 更新运行时与发布
 
