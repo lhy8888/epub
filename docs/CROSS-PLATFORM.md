@@ -46,8 +46,8 @@ dotnet restore src/QuietRead.Android --locked-mode
 dotnet publish src/QuietRead.Android -c Release --no-restore -p:JavaSdkDirectory=/path/to/jdk21 -p:AndroidKeyStore=false -o artifacts/android
 python3 tools/check_mobile_package.py android artifacts/android
 
-# iOS：macOS、Xcode 26.3，工作负载版本由 SDK 随带 manifest 固定
-dotnet workload install ios --skip-manifest-update
+# iOS：macOS、Xcode 26.3，iOS 工作负载 26.2.10233 与 Xcode 26.3 配对固定
+dotnet workload install ios --version ios@26.2.10233
 dotnet restore src/QuietRead.iOS --locked-mode
 dotnet build src/QuietRead.iOS -c Release --no-restore -r iossimulator-arm64 -p:EnableCodeSigning=false
 dotnet build src/QuietRead.iOS -c Release --no-restore -r ios-arm64 -p:EnableCodeSigning=false

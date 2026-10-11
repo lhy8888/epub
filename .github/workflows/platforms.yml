@@ -114,7 +114,7 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
           xcrun --find install_name_tool
           xcodebuild -version
-          dotnet workload install ios --skip-manifest-update
+          dotnet workload install ios --version ios@26.2.10233
       - name: Restore iOS dependencies
         run: dotnet restore src/QuietRead.iOS --locked-mode
       - name: Record resolved iOS dependency lock
