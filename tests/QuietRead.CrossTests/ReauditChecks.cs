@@ -102,6 +102,11 @@ internal static partial class Program
             string state = Path.Combine(directory, "state.json"); File.WriteAllText(state, "keep settings"); Directory.CreateSymbolicLink(alias, directory);
             var target = TestStorage.Local(Path.Combine(alias, "state.json"));
             await Throws<InvalidDataException>(() => ExportFiles.WriteAsync(target.File, "{}"u8.ToArray(), "json", directory, [])); Equal("keep settings", File.ReadAllText(state));
+            string parentAlias = DirectoryFor("export-parent-alias"), indirectAlias = DirectoryFor("export-indirect-alias");
+            Directory.CreateSymbolicLink(parentAlias, _root);
+            Directory.CreateSymbolicLink(indirectAlias, Path.Combine(parentAlias, Path.GetFileName(directory)));
+            var indirect = TestStorage.Local(Path.Combine(indirectAlias, "state.json"));
+            await Throws<InvalidDataException>(() => ExportFiles.WriteAsync(indirect.File, "{}"u8.ToArray(), "json", directory, [])); Equal("keep settings", File.ReadAllText(state));
         });
         await Test("Local export replaces an existing backup atomically and cancellation preserves it without temporary files", async () =>
         {

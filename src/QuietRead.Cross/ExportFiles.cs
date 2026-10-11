@@ -53,7 +53,9 @@ public static class ExportFiles
         string resolvedParent = CanonicalPath(parent);
         string candidate = Path.Combine(resolvedParent, Path.GetFileName(path));
         var directory = new DirectoryInfo(candidate);
-        return directory.Exists && directory.LinkTarget != null ? directory.ResolveLinkTarget(true)!.FullName : candidate;
+        // ResolveLinkTarget resolves the final component, but its target can
+        // still contain a parent alias (for example /var -> /private/var on macOS).
+        return directory.Exists && directory.LinkTarget != null ? CanonicalPath(directory.ResolveLinkTarget(true)!.FullName) : candidate;
     }
 
     private static async Task WriteLocalAsync(string path, byte[] bytes, CancellationToken token)
