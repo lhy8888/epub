@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rid", required=True, choices=["linux-x64", "linux-arm64", "osx-x64", "osx-arm64", "win-x64"])
+    parser.add_argument("--rid", required=True, choices=["linux-x64", "osx-x64", "osx-arm64", "win-x64"])
     args = parser.parse_args()
     destination = ROOT / "artifacts" / ("desktop-" + args.rid)
     destination.mkdir(parents=True, exist_ok=True)

@@ -39,8 +39,8 @@ def main():
                     size, count = struct.unpack_from("<HH", data, 54)
                     assert size >= 56
                     for i in range(count):
-                        kind, flags, file_offset, address, physical, file_size, memory_size, alignment = struct.unpack_from("<IIQQQQQQ", data, offset + i * size)
-                        if kind == 1:
+                        segment_type, flags, file_offset, address, physical, file_size, memory_size, alignment = struct.unpack_from("<IIQQQQQQ", data, offset + i * size)
+                        if segment_type == 1:
                             assert alignment >= 16384 and file_offset % 16384 == address % 16384, "Native library lacks 16 KB page support: " + name
             # aapt is part of the runner's verified Android SDK installation.
             import os

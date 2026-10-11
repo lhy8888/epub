@@ -7,9 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    for flavor, rid in (("simulator", "iossimulator-arm64"), ("device", "ios-arm64")):
+    targets = (("restore", None),) if "--restore" in sys.argv else (("simulator", "iossimulator-arm64"), ("device", "ios-arm64"))
+    for flavor, rid in targets:
         command = ["dotnet", "build", "src/QuietRead.iOS", "-c", "Release", "--no-restore", "-r", rid,
                    "-p:EnableCodeSigning=false", "-p:RestoreLockedMode=true", "-p:OutputPath=../../artifacts/ios-" + flavor + "/"]
+        if flavor == "restore":
+            command = ["dotnet", "restore", "src/QuietRead.iOS", "--force-evaluate"]
         lines = []
         with subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
             for line in process.stdout:

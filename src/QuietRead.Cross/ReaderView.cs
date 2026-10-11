@@ -76,7 +76,11 @@ public sealed class ReaderView : UserControl
     {
         var button = new Button { Padding = new Thickness(10, 8), MinHeight = 40 };
         Language.Bind(button, ContentControl.ContentProperty, key);
-        button.Click += async (_, _) => await action(); return button;
+        button.Click += async (_, _) =>
+        {
+            try { await action(); }
+            catch (Exception error) { _statusError = error.Message; RefreshStatus(); }
+        }; return button;
     }
     private CheckBox Check(CheckBox box, string key) { Language.Bind(box, ContentControl.ContentProperty, key); return box; }
     private static StackPanel Panel(params Control[] children)

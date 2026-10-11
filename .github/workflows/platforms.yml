@@ -116,7 +116,7 @@ jobs:
           xcodebuild -version
           dotnet workload install ios --version ios@26.2.10233
       - name: Restore iOS dependencies
-        run: dotnet restore src/QuietRead.iOS --locked-mode
+        run: python3 tools/build_ios.py --restore
       - name: Record resolved iOS dependency lock
         run: python3 -c 'import base64,gzip; print("::notice title=iOS dependency lock::" + base64.b64encode(gzip.compress(open("src/QuietRead.iOS/packages.lock.json", "rb").read())).decode())'
       - name: Compile simulator and unsigned device application
