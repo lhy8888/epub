@@ -2,4 +2,5 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="Interface.en.json" WithCulture="false" LogicalName="QuietRead.Core.Interface.en.json" /></ItemGroup>
 </Project>

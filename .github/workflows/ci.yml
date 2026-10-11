@@ -34,6 +34,8 @@ jobs:
           global-json-file: global.json
       - name: Check tracked source, action pins and reproducible sample
         run: python tools/check_repository.py
+      - name: Check Chinese and English interface text coverage
+        run: python tools/check_localization.py
       - name: Restore locked dependencies and audit all severities
         run: dotnet restore QuietRead.sln --locked-mode
       - name: Verify C# formatting
@@ -114,6 +116,7 @@ jobs:
           path: |
             artifacts/ui-tests.json
             artifacts/windows-smoke.png
+            artifacts/windows-language-en.png
           if-no-files-found: error
           retention-days: 14
       - name: Save portable download

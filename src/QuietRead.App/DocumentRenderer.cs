@@ -118,18 +118,19 @@ internal static class DocumentRenderer
                         MaxWidth = preferences.TextWidth - 64,
                         HorizontalAlignment = HorizontalAlignment.Center
                     };
-                    System.Windows.Automation.AutomationProperties.SetName(content, block.Alt ?? "书内图片");
+                    if (block.Alt == null) UiText.Bind(content, System.Windows.Automation.AutomationProperties.NameProperty, "书内图片");
+                    else System.Windows.Automation.AutomationProperties.SetName(content, block.Alt);
                 }
                 else
                 {
                     var label = new TextBlock
                     {
-                        Text = block.Alt + "\n（图片未显示）",
                         TextWrapping = TextWrapping.Wrap,
                         FontSize = 13,
                         Padding = new Thickness(16),
                         TextAlignment = TextAlignment.Center
                     };
+                    UiText.Text(label, "{0}{1}", block.Alt, UiText.Part("\n（图片未显示）"));
                     label.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryBrush");
                     var frame = new Border { Child = label, CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1) };
                     frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
@@ -158,8 +159,8 @@ internal static class DocumentRenderer
                         // No NavigateUri and no shell/browser launch path.
                         hyperlink.Click += (_, _) => followLink(target);
                         hyperlink.SetResourceReference(TextElement.ForegroundProperty, "AccentBrush");
-                        System.Windows.Automation.AutomationProperties.SetName(hyperlink,
-                            (target.IsNote ? "查看注释：" : "书内链接：") + inline.Text[..Math.Min(160, inline.Text.Length)]);
+                        UiText.Bind(hyperlink, System.Windows.Automation.AutomationProperties.NameProperty,
+                            target.IsNote ? "查看注释：{0}" : "书内链接：{0}", inline.Text[..Math.Min(160, inline.Text.Length)]);
                     }
                     if (inline.Style.HasFlag(TextStyle.Bold)) span.FontWeight = FontWeights.SemiBold;
                     if (inline.Style.HasFlag(TextStyle.Italic)) span.FontStyle = FontStyles.Italic;

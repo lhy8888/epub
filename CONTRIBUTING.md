@@ -19,6 +19,7 @@ dotnet build QuietRead.sln -c Release --no-restore
 dotnet run --project tests/QuietRead.Tests -c Release -- --validate samples/QuietRead-Guide.epub --report docs/core-tests.local.json
 dotnet format whitespace QuietRead.sln --no-restore --verify-no-changes
 python tools/check_repository.py
+python tools/check_localization.py
 python tools/check_dependencies.py
 ```
 
@@ -32,6 +33,8 @@ dotnet run --project tests/QuietRead.UiTests -c Release -- samples/QuietRead-Gui
 这两个测试项目使用独立控制台测试程序，必须通过 `dotnet run` 执行。测试有失败时返回非零退出码；请勿将 `dotnet test` 成功当作已经执行回归测试。
 
 修改 C# 后可运行 `dotnet format whitespace QuietRead.sln --no-restore` 修复格式。项目启用警告即错误、安全类别分析器、直接与传递 NuGet 漏洞审计。请为实际行为变化补充有意义的测试。
+
+新增界面文案需同时维护中文和英文资源，使用支持即时更新的本地化绑定；不要翻译书籍正文、元数据或用户笔记。资源、全局语言设置与校验方法见 [中英文界面说明](docs/LOCALIZATION.md)。
 
 ## 安全与性能约束
 

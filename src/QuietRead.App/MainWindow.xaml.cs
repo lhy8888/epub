@@ -51,10 +51,12 @@ public partial class MainWindow : Window
     {
         _store = store;
         _state = _store.Load();
+        UiText.Current.Language = _state.InterfaceLanguage;
         _library = new LibraryStore(store.DirectoryPath);
         byte[] legacyState = StateStore.Snapshot(_state);
         _libraryReady = Task.Run(() => _library.MigrateLegacy(JsonSerializer.Deserialize<AppState>(legacyState)!.Books));
         InitializeComponent();
+        LanguageCombo.SelectedIndex = _state.InterfaceLanguage == "en" ? 1 : 0;
         Rect workArea = SystemParameters.WorkArea;
         Width = Math.Max(MinWidth, Math.Min(Width, workArea.Width - 32));
         Height = Math.Max(MinHeight, Math.Min(Height, workArea.Height - 32));
@@ -80,7 +82,7 @@ public partial class MainWindow : Window
         _ready = true;
         LoadAppearanceControls(); SystemEvents.PowerModeChanged += PowerModeChanged;
         ApplyTypography();
-        if (_store.LoadFailed) StatusText.Text = "原阅读记录无法读取，已使用默认设置。";
+        if (_store.LoadFailed) UiText.Text(StatusText, "原阅读记录无法读取，已使用默认设置。");
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -88,7 +90,7 @@ public partial class MainWindow : Window
         ApplyTitleBar();
         try { await _libraryReady; }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        { SaveStatusText.Text = "书库无法读取，现有数据已保留。"; }
+        { UiText.Text(SaveStatusText, "书库无法读取，现有数据已保留。"); }
         if (((App)Application.Current).LaunchPath is string path) await OpenBookAsync(path);
     }
 
@@ -96,8 +98,8 @@ public partial class MainWindow : Window
     {
         var picker = new OpenFileDialog
         {
-            Title = "打开 EPUB 书籍",
-            Filter = "EPUB 电子书 (*.epub)|*.epub",
+            Title = UiText.Get("打开 EPUB 书籍"),
+            Filter = UiText.Get("EPUB 电子书 (*.epub)|*.epub"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -145,10 +147,10 @@ public partial class MainWindow : Window
             SearchProgressBar.Value = 0; SearchPositionText.Text = "—";
             Reader.Document = null; _renderedBlocks.Clear(); _segments = [0]; _segmentIndex = 0;
             PartText.Text = ""; ProgressText.Text = "—";
-            SearchList.ItemsSource = null; SearchStatusText.Text = "输入文字，点击「查找」搜索全书。";
+            SearchList.ItemsSource = null; UiText.Text(SearchStatusText, "输入文字，点击「查找」搜索全书。");
             BookTitleText.Text = _book.Title; BookAuthorText.Text = _book.Author;
             Title = _book.Title + " · QuietRead";
-            ChapterCountText.Text = $"{_book.Chapters.Count} 个章节";
+            UiText.Text(ChapterCountText, "{0} 个章节", _book.Chapters.Count);
             _selectingToc = true;
             _toc = new TocNavigator(_book.TableOfContents); _tocCollapsed.Clear(); _currentToc = -1; TocFilter.Text = ""; RefreshToc();
             _selectingToc = false;
@@ -162,7 +164,7 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); StatusText.Text = "无法打开这本书。"; } }
+        { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); UiText.Text(StatusText, "无法打开这本书。"); } }
         finally
         {
             if (opened != null) { _ = Task.Run(opened.Dispose); }
@@ -257,12 +259,12 @@ public partial class MainWindow : Window
             ScheduleSave();
             if (addHistory) PushHistory(origin);
             UpdateButtons(); Announce(ChapterTitleText);
-            StatusText.Text = slice.images.Skipped > 0 ? $"本段有 {slice.images.Skipped} 张图片未显示。" :
-                book.ExternalResourcesSkipped > 0 ? "已跳过书内外部资源。" : "阅读位置自动保存";
+            if (slice.images.Skipped > 0) UiText.Text(StatusText, "本段有 {0} 张图片未显示。", slice.images.Skipped);
+            else UiText.Text(StatusText, book.ExternalResourcesSkipped > 0 ? "已跳过书内外部资源。" : "阅读位置自动保存");
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or UnauthorizedAccessException)
-        { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); StatusText.Text = "此章节暂时无法显示，可从目录选择其他章节。"; } }
+        { if (!_closed && !token.IsCancellationRequested) { ShowError(exception.Message); UiText.Text(StatusText, "此章节暂时无法显示，可从目录选择其他章节。"); } }
         finally
         {
             if (generation == _readGeneration) { _restoring = false; }
@@ -324,7 +326,8 @@ public partial class MainWindow : Window
         double chapterPart = (_segments[_segmentIndex] + (end - _segments[_segmentIndex]) * viewed) / _chapter.Blocks.Count;
         double percent = 100 * (_chapterIndex + chapterPart) / _book.Chapters.Count;
         ProgressText.Text = $"{_chapterIndex + 1} / {_book.Chapters.Count}  ·  ≈{percent:0}%";
-        PartText.Text = _segments.Length > 1 ? $"第 {_segmentIndex + 1}/{_segments.Length} 部分" : "滚动或点击翻页";
+        if (_segments.Length > 1) UiText.Text(PartText, "第 {0}/{1} 部分", _segmentIndex + 1, _segments.Length);
+        else UiText.Text(PartText, "滚动或点击翻页");
         UpdateButtons();
     }
 
@@ -346,7 +349,7 @@ public partial class MainWindow : Window
             await NavigateAsync(_chapterIndex, _segments[part], direction > 0 ? 0 : 1, addHistory: false);
         else if (_chapterIndex + direction >= 0 && _chapterIndex + direction < _book.Chapters.Count)
             await NavigateAsync(_chapterIndex + direction, direction > 0 ? 0 : int.MaxValue, direction > 0 ? 0 : 1, addHistory: false);
-        else StatusText.Text = direction > 0 ? "已到书末。" : "已到书首。";
+        else UiText.Text(StatusText, direction > 0 ? "已到书末。" : "已到书首。");
     }
 
     private async void Previous_Click(object sender, RoutedEventArgs e) => await StepReadingAsync(-1);
@@ -356,26 +359,26 @@ public partial class MainWindow : Window
     {
         if (_history == null || _book == null || _chapter == null || _busy) return;
         CapturePosition();
-        if (_history.Bookmarks.Count >= 64) { StatusText.Text = "每本书最多保存 64 个书签，请先删除部分书签。"; return; }
+        if (_history.Bookmarks.Count >= 64) { UiText.Text(StatusText, "每本书最多保存 64 个书签，请先删除部分书签。"); return; }
         if (_history.Bookmarks.Any(x => x.ChapterIndex == _chapterIndex &&
             (x.Locator is { } saved && _history.Locator is { } current ? saved.Paragraph == current.Paragraph && saved.Offset == current.Offset :
                 x.BlockIndex == _history.BlockIndex && Math.Abs(x.Fraction - ScrollFraction) < 0.03)))
-        { StatusText.Text = "这个位置已有书签。"; return; }
+        { UiText.Text(StatusText, "这个位置已有书签。"); return; }
         _history.Bookmarks.Add(new Bookmark
         {
             ChapterIndex = _chapterIndex,
             BlockIndex = _history.BlockIndex,
             Fraction = ScrollFraction,
             Locator = _history.Locator,
-            Label = _book.Chapters[_chapterIndex].Title + (_segments.Length > 1 ? $" · 第 {_segmentIndex + 1} 部分" : "")
+            Label = _book.Chapters[_chapterIndex].Title + (_segments.Length > 1 ? UiText.Get(" · 第 {0} 部分", _segmentIndex + 1) : "")
         });
-        RefreshBookmarks(); ScheduleSave(); StatusText.Text = "已添加书签。";
+        RefreshBookmarks(); ScheduleSave(); UiText.Text(StatusText, "已添加书签。");
     }
 
     private void RefreshBookmarks()
     {
         BookmarksList.ItemsSource = _history?.Bookmarks.OrderBy(x => x.ChapterIndex).ThenBy(x => x.BlockIndex).ThenBy(x => x.Fraction).Select(x => new BookmarkRow(x)).ToArray();
-        BookmarksHint.Text = _history?.Bookmarks.Count > 0 ? "点击书签跳转；× 删除。" : "阅读时点击「＋书签」保存位置。";
+        UiText.Text(BookmarksHint, _history?.Bookmarks.Count > 0 ? "点击书签跳转；× 删除。" : "阅读时点击「＋书签」保存位置。");
     }
 
     private async void Bookmarks_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -410,9 +413,9 @@ public partial class MainWindow : Window
         {
             if (_closed || token.IsCancellationRequested || generation != _searchGeneration || book != _book || !_searching) return;
             SearchProgressBar.Value = 100d * value.Completed / Math.Max(1, value.Total);
-            SearchStatusText.Text = $"已搜索 {value.Completed}/{value.Total} 个正文资源…";
+            UiText.Text(SearchStatusText, "已搜索 {0}/{1} 个正文资源…", value.Completed, value.Total);
         });
-        SearchStatusText.Text = "正在搜索全书…"; SearchList.ItemsSource = null;
+        UiText.Text(SearchStatusText, "正在搜索全书…"); SearchList.ItemsSource = null;
         try
         {
             SearchOutcome outcome = await RunBoundedWorkAsync(_searchWork, () => book.Search(query, token, progress, options), token);
@@ -421,13 +424,13 @@ public partial class MainWindow : Window
             _highlightOptions = options;
             SearchList.ItemsSource = outcome.Hits;
             _searchHits = outcome.Hits; SearchProgressBar.Value = 100;
-            SearchStatusText.Text = outcome.LimitReached ? "显示前 200 个匹配段落，可缩小关键词范围。" : $"找到 {outcome.Hits.Count} 个匹配段落。";
-            if (outcome.FailedChapters > 0) SearchStatusText.Text += $" {outcome.FailedChapters} 个章节未能解析。";
+            var resultMessage = outcome.LimitReached ? UiText.Part("显示前 200 个匹配段落，可缩小关键词范围。") : UiText.Part("找到 {0} 个匹配段落。", outcome.Hits.Count);
+            UiText.Text(SearchStatusText, "{0}{1}", resultMessage, outcome.FailedChapters > 0 ? UiText.Part(" {0} 个章节未能解析。", outcome.FailedChapters) : "");
             Announce(SearchStatusText);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is EpubException or IOException or ArgumentException)
-        { if (!_closed && !token.IsCancellationRequested) SearchStatusText.Text = "搜索无法完成。"; }
+        { if (!_closed && !token.IsCancellationRequested) UiText.Text(SearchStatusText, "搜索无法完成。"); }
         finally { if (generation == _searchGeneration) { _searching = false; UpdateButtons(); } }
     }
 
@@ -458,7 +461,8 @@ public partial class MainWindow : Window
         Preferences.TextWidth = WidthSlider.Value;
         Preferences.ParagraphSpacing = ParagraphSpacingSlider.Value;
         Preferences.FirstLineIndent = IndentSlider.Value;
-        IndentLabel.Text = Preferences.FirstLineIndent < 0 ? "遵循来源" : Preferences.FirstLineIndent.ToString("0.#", CultureInfo.InvariantCulture) + " em";
+        if (Preferences.FirstLineIndent < 0) UiText.Text(IndentLabel, "遵循来源");
+        else IndentLabel.Text = Preferences.FirstLineIndent.ToString("0.#", CultureInfo.InvariantCulture) + " em";
         FontSizeLabel.Text = FontSizeSlider.Value.ToString("0", CultureInfo.InvariantCulture);
         ScheduleSave();
         _appearanceTimer.Stop(); _appearanceTimer.Start();
@@ -559,7 +563,7 @@ public partial class MainWindow : Window
         }
         else { WindowState = WindowState.Normal; WindowStyle = _savedStyle; ResizeMode = _savedResize; WindowState = _savedWindowState; }
         _fullScreen = !_fullScreen;
-        FullScreenButton.Content = _fullScreen ? "退出全屏" : "全屏";
+        UiText.Bind(FullScreenButton, ContentControl.ContentProperty, _fullScreen ? "退出全屏" : "全屏");
     }
 
     private void Window_DragOver(object sender, DragEventArgs e)
@@ -600,10 +604,10 @@ public partial class MainWindow : Window
         LoadAppearanceControls(); ApplyTheme(Preferences.Theme);
         Reader.Document = null; TocList.ItemsSource = null; SearchList.ItemsSource = null; RefreshBookmarks();
         ReaderPane.Visibility = Visibility.Collapsed; WelcomePane.Visibility = Visibility.Visible;
-        BookTitleText.Text = "QuietRead"; BookAuthorText.Text = "留一点时间，给阅读。"; Title = "QuietRead · 静读";
-        ChapterCountText.Text = "书籍导航"; PartText.Text = ""; ProgressText.Text = "—";
+        BookTitleText.Text = "QuietRead"; UiText.Text(BookAuthorText, "留一点时间，给阅读。"); UiText.Bind(this, TitleProperty, "QuietRead · 静读");
+        UiText.Text(ChapterCountText, "书籍导航"); PartText.Text = ""; ProgressText.Text = "—";
         _busy = false; BusyBar.Visibility = Visibility.Hidden; Reader.IsEnabled = true; Cursor = null;
-        RefreshRecent(); UpdateButtons(); ScheduleSave(); StatusText.Text = "就绪";
+        RefreshRecent(); UpdateButtons(); ScheduleSave(); UiText.Text(StatusText, "就绪");
         if (book != null) _ = Task.Run(book.Dispose);
         return true;
     }
@@ -617,7 +621,7 @@ public partial class MainWindow : Window
 
     private async void ClearHistory_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show(this, "清除最近阅读列表？\n书库、续读、书签、批注及 EPUB 文件会保留。", "清除最近记录", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (MessageBox.Show(this, UiText.Get("清除最近阅读列表？\n书库、续读、书签、批注及 EPUB 文件会保留。"), UiText.Get("清除最近记录"), MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         await ClearRecentAsync();
     }
 
@@ -628,24 +632,25 @@ public partial class MainWindow : Window
         { ShowSaveFailure(); return; }
         _state.Books.Clear(); RefreshRecent(); _saveTimer.Stop();
         ScheduleSave();
-        if (await SaveReadingDataAsync() && !_closed) StatusText.Text = "阅读记录已清除。";
+        if (await SaveReadingDataAsync() && !_closed) UiText.Text(StatusText, "阅读记录已清除。");
     }
 
     private void Help_Click(object sender, RoutedEventArgs e)
     {
         AppearancePopup.IsOpen = false;
-        MessageBox.Show(this, "QuietRead · 静读\n\n" +
+        MessageBox.Show(this, UiText.Get("QuietRead · 静读\n\n" +
             "点击「打开」或拖入本地 EPUB。用目录跳转，用底部按钮翻页，在「查找」中搜索全书。\n\n" +
             "「Aa」调整排版、选择预设或单书外观；「全屏」放大阅读区域；「＋书签」保存位置。\n\n" +
             "选中文字后在「批注」添加高亮和笔记；「书库」管理标签、阅读状态、备份与导入。搜索支持当前章、大小写和整词。保存失败可点击「重试保存」。\n\n" +
-            "阅读记录只保存在本机。软件不会执行书内脚本或加载外部资源。适合小说和一般文字书，暂不支持 DRM 和固定版式。",
-            "使用说明", MessageBoxButton.OK, MessageBoxImage.Information);
+            "在「Aa」的「界面语言」中切换中文或 English，选择会保存在本机。\n\n" +
+            "阅读记录只保存在本机。软件不会执行书内脚本或加载外部资源。适合小说和一般文字书，暂不支持 DRM 和固定版式。"),
+            UiText.Get("使用说明"), MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private int BeginBusy(string message)
     {
         int id = ++_busyGeneration; _busy = true; BusyBar.Visibility = Visibility.Visible;
-        Reader.IsEnabled = false; Cursor = Cursors.Wait; StatusText.Text = message; UpdateButtons();
+        Reader.IsEnabled = false; Cursor = Cursors.Wait; UiText.Text(StatusText, message); UpdateButtons();
         return id;
     }
 
@@ -674,7 +679,7 @@ public partial class MainWindow : Window
     }
 
     private void ScheduleSave()
-    { if (!_ready || _closed) return; _dirty = true; _editRevision++; _saveTimer.Stop(); _saveTimer.Start(); SaveStatusText.Text = "待保存"; }
+    { if (!_ready || _closed) return; _dirty = true; _editRevision++; _saveTimer.Stop(); _saveTimer.Start(); UiText.Text(SaveStatusText, "待保存"); }
 
     private async void SaveTimer_Tick(object? sender, EventArgs e)
     {
@@ -686,8 +691,8 @@ public partial class MainWindow : Window
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
         if (_closed) return;
-        if (!TryFlushReadingData() && MessageBox.Show(this, "阅读数据保存失败。仍要退出吗？\n选择「否」保留窗口，修复权限或磁盘问题后点击「重试保存」。",
-            "尚未保存", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { e.Cancel = true; return; }
+        if (!TryFlushReadingData() && MessageBox.Show(this, UiText.Get("阅读数据保存失败。仍要退出吗？\n选择「否」保留窗口，修复权限或磁盘问题后点击「重试保存」。"),
+            UiText.Get("尚未保存"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { e.Cancel = true; return; }
         CapturePosition(); _closed = true; _saveTimer.Stop(); _appearanceTimer.Stop();
         SystemEvents.PowerModeChanged -= PowerModeChanged;
         CloseFootnote(); _resizeTimer.Stop(); SystemParameters.StaticPropertyChanged -= SystemSettingsChanged;
@@ -702,7 +707,7 @@ public partial class MainWindow : Window
     }
 
     private void ShowError(string message)
-    { if (!_closed) MessageBox.Show(this, message, "无法读取书籍", MessageBoxButton.OK, MessageBoxImage.Information); }
+    { if (!_closed) MessageBox.Show(this, UiText.GetError(message), UiText.Get("无法读取书籍"), MessageBoxButton.OK, MessageBoxImage.Information); }
 
     private static void Cancel(ref CancellationTokenSource? source)
     { source?.Cancel(); source?.Dispose(); source = null; }

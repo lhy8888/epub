@@ -75,7 +75,7 @@ public partial class MainWindow
                     preview.Blocks.Sum(b => b.PlainText.Length));
                 FootnoteReader.Document = DocumentRenderer.Create(chapter, 0, chapter.Blocks.Count,
                     new PreparedImages(new Dictionary<string, ImageSource>(), 0), Preferences, "", _ => { }, out _);
-                FootnoteHint.Text = preview.Truncated ? "注释过长或含图片，点击「跳转到原文」查看。" : "关闭注释后继续正文阅读。";
+                UiText.Text(FootnoteHint, preview.Truncated ? "注释过长或含图片，点击「跳转到原文」查看。" : "关闭注释后继续正文阅读。");
                 FootnoteOverlay.Visibility = Visibility.Visible;
                 RefreshDocumentAutomation(FootnoteReader);
                 FootnoteCloseButton.Focus(); Announce(FootnoteHint);
@@ -124,7 +124,7 @@ public partial class MainWindow
     internal void StopSearch()
     {
         _searchGeneration++; Cancel(ref _searchToken); _searching = false;
-        SearchStatusText.Text = "搜索已停止。"; UpdateButtons(); Announce(SearchStatusText);
+        UiText.Text(SearchStatusText, "搜索已停止。"); UpdateButtons(); Announce(SearchStatusText);
     }
 
     private async void SearchPrevious_Click(object sender, RoutedEventArgs e) => await MoveSearchAsync(-1);

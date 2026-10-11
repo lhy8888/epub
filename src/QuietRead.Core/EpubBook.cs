@@ -52,7 +52,7 @@ public sealed class EpubBook : IDisposable
             while ((read = file.Read(buffer)) > 0)
             {
                 token.ThrowIfCancellationRequested(); hashed += read;
-                if (hashed > ReaderLimits.ArchiveBytes) throw new EpubException("计算内容身份时文件超过大小限制。");
+                if (hashed > ReaderLimits.ArchiveBytes) throw new EpubException("计算书籍文件指纹时文件超过大小限制。");
                 digest.AppendData(buffer, 0, read);
             }
             string contentId = Convert.ToHexString(digest.GetHashAndReset());

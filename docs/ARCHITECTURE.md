@@ -40,7 +40,7 @@
 | 源码与供应链 | 禁止提交运行时/编译目录和常见私钥、GitHub 凭据；所有 Action 固定完整提交 SHA；示例书内容与生成器一致 |
 | 格式、编译、分析器 | `dotnet format whitespace`；Release 编译；警告与 .NET 安全分析器错误会阻断构建 |
 | NuGet 审计 | 锁定依赖还原；审计直接/传递依赖的所有漏洞级别；已知漏洞会导致失败 |
-| Windows / Linux 核心测试 | 95 项核心、安全及兼容性回归；位置、Unicode、批注、书库事务/备份、身份、搜索、目录、排版、状态与管道；解析示例 EPUB；输出性能测量与 JSON 报告 |
+| Windows / Linux 核心测试 | 100 项核心、安全及兼容性回归；位置、Unicode、批注、书库事务/备份、身份、搜索、目录、排版、状态与管道；解析示例 EPUB；输出性能测量与 JSON 报告 |
 | Windows WPF 冒烟测试 | 实际显示窗口、图片预算、跨排版高亮、翻页、文字位置与重排/重开/书签、导航历史、脚注/焦点、搜索取消、正文 TextPattern/可见范围、管道打开；输出真实窗口图和 JSON 报告 |
 | 包验证 | Windows x64 GUI PE、运行时和许可证完整性、ZIP CRC 与 SHA-256；实际启动便携 EXE，第二次启动转交另一本书，并正常关闭 |
 | CodeQL | 扫描 C# 和 GitHub Actions；错误和安全分值 ≥7 的高危/严重发现会失败；上传 [Security](https://github.com/lhy8888/epub/security/code-scanning) 和 SARIF 报告，每周重新扫描 |

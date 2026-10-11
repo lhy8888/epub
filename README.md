@@ -16,6 +16,8 @@
 3. 点击「打开」或将一个本地 `.epub` 文件拖入窗口。包内的 `samples/QuietRead-Guide.epub` 可用于体验。
 4. 使用滚轮或底部「上一页 / 下一页」阅读，在侧栏切换目录、书签、查找和批注；「Aa」调整外观，「全屏」扩大阅读区域。
 
+**切换中英文界面**：点击「Aa」，在「界面语言 / Interface language」中选择「简体中文」或「English」。菜单、书库、提示和帮助即时切换，重启后保留选择；正文和已有笔记保持原文。
+
 再次启动程序或通过命令行打开 EPUB，会将打开请求转交到现有窗口。
 
 Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供未签名的 Windows x64 便携包；正式版本发布后可从 [Releases](https://github.com/lhy8888/epub/releases) 下载。
@@ -31,6 +33,7 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 | 脚注 | 识别带 EPUB/ARIA 注释标记的本地脚注，预览文字并跳转原文 |
 | 搜索 | 当前章或全书、区分大小写、整词匹配、进度与停止、结果高亮及前后结果切换；支持中英文交界匹配 |
 | 阅读外观 | 纸白/暖色/夜间主题，系统字体、字号、行距、宽度、段距、首行缩进与对齐；小说/文档预设、单书覆盖与恢复默认 |
+| 界面语言 | 简体中文 / English 即时切换，作为全局设置保存在本机；覆盖菜单、书库、提示、帮助和无障碍名称 |
 | 高亮与笔记 | 黄色/绿色/蓝色/粉色高亮；新增、编辑、定位和删除笔记；单书 Markdown 摘录导出 |
 | 长期书库 | 编辑本地书名、作者、标签、系列及未读/在读/已读状态；筛选、按最近阅读/书名/作者排序 |
 | 文件关联 | 字节内容相同的 EPUB 改名或移动后恢复阅读数据；从书库重新关联本地文件 |
@@ -41,6 +44,7 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 
 - **添加高亮和笔记**：在正文选中文字，进入「批注」，选择颜色并点击「选区高亮」；选中批注后编辑笔记，点击「保存笔记」。
 - **为一本书设置外观**：点击「Aa」，勾选「本书独立外观」。取消勾选或点击「本书恢复默认」后继承全局设置。
+- **切换界面语言**：在「Aa」选择中文或 English。语言独立于单书外观，所有书籍共用；Markdown 摘录的标题说明按当前语言导出，书名、摘录与笔记保留原文。
 - **管理书籍**：点击「书库」，选择条目后编辑元数据、调整阅读状态、导出数据或重新关联文件。元数据修改保存在本地，原 EPUB 保持只读。
 - **处理保存失败**：查看底部保存状态并点击「重试保存」。关闭时若刷新失败，程序会提示保留窗口或放弃未保存修改。
 
@@ -102,7 +106,7 @@ Windows 上生成包含运行时的便携包：
 
 ## 测试与验证
 
-当前回归包含 **95 项核心/安全测试和 40 项 Windows WPF 实窗测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、格式、依赖审计及 C#/Actions CodeQL 检查。
+当前回归包含 **100 项核心/安全测试和 45 项 Windows WPF 实窗测试**。GitHub Actions 在 Linux/Windows 执行核心测试，并在 Windows 验证界面、语言切换、持久化、便携 ZIP 和实际 EXE 双启动；另有源码策略、中英文文案覆盖、格式、依赖审计及 C#/Actions CodeQL 检查。
 
 ```powershell
 # Linux / Windows：核心、安全、示例兼容性及基准
@@ -112,11 +116,12 @@ dotnet run --project tests/QuietRead.Tests -c Release --no-restore -- --benchmar
 dotnet run --project tests/QuietRead.UiTests -c Release --no-restore -- samples/QuietRead-Guide.epub artifacts/ui-tests.json artifacts/windows-smoke.png
 
 python tools/check_repository.py
+python tools/check_localization.py
 dotnet format whitespace QuietRead.sln --no-restore --verify-no-changes
 python tools/check_dependencies.py --report artifacts/dependencies.json
 ```
 
-两个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；本轮安全、性能、保存及异步路径修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
+两个测试项目是控制台回归程序，请通过 `dotnet run` 执行。最新通过状态、测试报告与中英文截图以 [对应提交的 Actions 运行](https://github.com/lhy8888/epub/actions) 为准；语言功能见 [中英文界面说明](docs/LOCALIZATION.md)，安全、性能、保存及异步路径修复见 [复审修复记录](docs/REAUDIT-FIXES.md)。
 
 Windows 11 真机的 Narrator/NVDA、多 DPI、实际高对比切换、睡眠恢复和长期滚动/工作集表现仍需人工验收。
 

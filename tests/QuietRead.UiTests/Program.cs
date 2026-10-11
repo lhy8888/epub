@@ -370,6 +370,7 @@ internal static class Program
                 finally { reading.Close(); }
                 await P1UiChecks.Run(temporary);
                 await ReauditUiChecks.Run(temporary);
+                await LanguageUiChecks.Run(temporary, Path.Combine(Path.GetDirectoryName(screenshot)!, "windows-language-en.png"));
             }
             catch (Exception exception) { Record("WPF smoke harness", exception); }
             finally
@@ -475,7 +476,7 @@ internal static class Program
             foreach (T child in Visuals<T>(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
 
-    private static void Capture(MainWindow window, string path)
+    internal static void Capture(MainWindow window, string path)
     {
         window.UpdateLayout();
         var content = (FrameworkElement)window.Content;

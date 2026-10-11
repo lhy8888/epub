@@ -54,11 +54,13 @@ public sealed class BookHistory
 public sealed class AppState
 {
     public int Schema { get; set; } = 2;
+    public string InterfaceLanguage { get; set; } = "zh-CN";
     public ReaderPreferences Preferences { get; set; } = new();
     public List<BookHistory> Books { get; set; } = [];
 
     public void Normalize()
     {
+        InterfaceLanguage = InterfaceText.NormalizeLanguage(InterfaceLanguage);
         Preferences ??= new ReaderPreferences();
         if (Preferences.Theme is not ("Paper" or "Sepia" or "Dark")) Preferences.Theme = "Paper";
         if (Preferences.Font is not ("Serif" or "Sans" or "Georgia")) Preferences.Font = "Serif";
@@ -129,7 +131,9 @@ public sealed class StateStore
         try
         {
             if (!File.Exists(_path)) return new AppState();
-            using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096);
+            // A forwarding process may read the saved language while the main
+            // window atomically replaces settings. Keep reading the old snapshot.
+            using var file = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096);
             if (file.Length > MaxStateBytes) throw new InvalidDataException("Settings exceed size limit.");
             AppState state = JsonSerializer.Deserialize<AppState>(file, Options) ?? new AppState();
             if (state.Schema is not (1 or 2)) throw new InvalidDataException("Unsupported settings version.");

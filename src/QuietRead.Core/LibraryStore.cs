@@ -32,7 +32,7 @@ public sealed class LibraryStore
             if (c.Schema != 1 || c.Books == null || c.Books.Count > BookDataRules.MaxBooks)
                 throw new InvalidDataException("书库版本或数量不符合限制。");
             foreach (LibraryEntry entry in c.Books) BookDataRules.ValidateEntry(entry);
-            if (c.Books.Select(b => b.BookId).Distinct().Count() != c.Books.Count) throw new InvalidDataException("书库身份重复。");
+            if (c.Books.Select(b => b.BookId).Distinct().Count() != c.Books.Count) throw new InvalidDataException("书库包含重复的书籍标识。");
             return _catalog = c;
         }
     }
@@ -71,7 +71,7 @@ public sealed class LibraryStore
         {
             LibraryEntry entry = Catalog.Books.Single(e => e.BookId == id);
             BookData data = BookDataRules.Parse(ReadBounded(DataPath(entry), BookDataRules.MaxBookBytes));
-            if (data.BookId != entry.BookId) throw new InvalidDataException("逐书数据身份不匹配。");
+            if (data.BookId != entry.BookId) throw new InvalidDataException("阅读数据与书籍文件不匹配。");
             return data;
         }
     }
@@ -182,7 +182,7 @@ public sealed class LibraryStore
         {
             if (book == null) throw new InvalidDataException("备份书籍为空。");
             BookDataRules.ValidateEntry(book.Entry, true); BookDataRules.Validate(book.Data);
-            if (book.Entry.BookId != book.Data.BookId || !ids.Add(book.Entry.BookId)) throw new InvalidDataException("备份书籍身份重复或不一致。");
+            if (book.Entry.BookId != book.Data.BookId || !ids.Add(book.Entry.BookId)) throw new InvalidDataException("备份包含重复或不一致的书籍标识。");
             if (BookDataRules.Snapshot(book.Data).Length > BookDataRules.MaxBookBytes) throw new InvalidDataException("导入的单书数据超限。");
             // Device paths are never accepted from a backup, even if hand-edited.
             book.Data.History.FilePath = "";
@@ -253,20 +253,20 @@ public sealed class LibraryStore
         }
     }
 
-    public string ExportMarkdown(string id)
+    public string ExportMarkdown(string id, string? language = null)
     {
         lock (_gate)
         {
             LibraryEntry e = Catalog.Books.Single(b => b.BookId == id); BookData d = LoadBook(id);
             var text = new StringBuilder();
-            text.Append("# ").AppendLine(Markdown(e.Title)).AppendLine().Append("作者：").AppendLine(Markdown(e.Author));
+            text.Append("# ").AppendLine(Markdown(e.Title)).AppendLine().AppendLine(InterfaceText.Get(language, "作者：{0}", Markdown(e.Author)));
             foreach (BookAnnotation a in d.Annotations.OrderBy(a => a.ChapterIndex).ThenBy(a => a.Range.Start.Paragraph))
             {
-                text.AppendLine().Append("## 第 ").Append(a.ChapterIndex + 1).Append(" 章 · ").AppendLine(a.Id.ToString());
+                text.AppendLine().AppendLine(InterfaceText.Get(language, "## 第 {0} 章 · {1}", a.ChapterIndex + 1, a.Id));
                 foreach (string line in a.Range.Text.Split('\n')) text.Append("> ").AppendLine(Markdown(line));
                 if (a.Note.Length > 0) text.AppendLine().AppendLine(Markdown(a.Note));
             }
-            foreach (Bookmark b in d.History.Bookmarks) text.AppendLine().Append("- 书签：").Append(Markdown(b.Label)).Append(" · 第 ").Append(b.ChapterIndex + 1).AppendLine(" 章");
+            foreach (Bookmark b in d.History.Bookmarks) text.AppendLine().AppendLine(InterfaceText.Get(language, "- 书签：{0} · 第 {1} 章", Markdown(b.Label), b.ChapterIndex + 1));
             return text.ToString();
         }
     }

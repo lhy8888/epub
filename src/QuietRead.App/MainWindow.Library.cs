@@ -43,7 +43,7 @@ public partial class MainWindow
             byte[]? book = _bookData == null ? null : BookDataRules.Snapshot(_bookData);
             await Task.Run(() => { if (book != null) _library.SaveBook(book, revision, libraryVersion); _store.Save(state, revision); });
             if (!_closed && edit == _editRevision)
-            { _dirty = false; SaveStatusText.Text = "已保存"; RetrySaveButton.Visibility = Visibility.Collapsed; }
+            { _dirty = false; UiText.Text(SaveStatusText, "已保存"); RetrySaveButton.Visibility = Visibility.Collapsed; }
             return true;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
@@ -61,7 +61,7 @@ public partial class MainWindow
             byte[] state = StateStore.Snapshot(_state);
             if (_bookData != null) _library.SaveBook(BookDataRules.Snapshot(_bookData), revision, _libraryVersion);
             _store.Save(state, revision); _dirty = false;
-            SaveStatusText.Text = "已保存"; RetrySaveButton.Visibility = Visibility.Collapsed; return true;
+            UiText.Text(SaveStatusText, "已保存"); RetrySaveButton.Visibility = Visibility.Collapsed; return true;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
         { ShowSaveFailure(error); return false; }
@@ -71,7 +71,8 @@ public partial class MainWindow
     {
         if (_closed) return;
         _dirty = true;
-        SaveStatusText.Text = error is InvalidDataException or JsonException ? "保存失败：" + error.Message : "保存失败，请检查磁盘和写入权限";
+        if (error is InvalidDataException or JsonException) UiText.Text(SaveStatusText, "保存失败：{0}", UiText.Error(error.Message));
+        else UiText.Text(SaveStatusText, "保存失败，请检查磁盘和写入权限");
         RetrySaveButton.Visibility = Visibility.Visible; Announce(SaveStatusText);
     }
     private async void RetrySave_Click(object sender, RoutedEventArgs e) => await SaveReadingDataAsync(force: true);
@@ -109,7 +110,7 @@ public partial class MainWindow
             if (dialog.OpenPath is string path) await OpenBookAsync(path, dialog.AssociateId);
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
-        { if (!_closed) ShowError("书库操作失败：" + error.Message); }
+        { if (!_closed) ShowError(UiText.Get("书库操作失败：{0}", UiText.Error(error.Message))); }
     }
 
     private void RefreshAnnotations(Guid? selected = null)
@@ -150,10 +151,10 @@ public partial class MainWindow
             var a = new BookAnnotation(Guid.NewGuid(), index, book.Chapters[index].Path, range, color, note, now, now);
             CommitAnnotationChange(data.Annotations.Append(a).ToList()); RefreshAnnotations(a.Id); ScheduleSave();
             await RefreshAnnotationDocumentAsync();
-            if (!_closed && book == _book && data == _bookData) StatusText.Text = "已添加高亮，可在批注中编辑笔记。";
+            if (!_closed && book == _book && data == _bookData) UiText.Text(StatusText, "已添加高亮，可在批注中编辑笔记。");
         }
         catch (OperationCanceledException) { }
-        catch (InvalidDataException error) { if (!_closed) StatusText.Text = error.Message; }
+        catch (InvalidDataException error) { if (!_closed) UiText.Text(StatusText, "{0}", UiText.Error(error.Message)); }
         finally { EndBusy(busy); }
     }
 
@@ -188,7 +189,7 @@ public partial class MainWindow
         int index = _bookData.Annotations.FindIndex(n => n.Id == a.Id); if (index < 0) return;
         var annotations = _bookData.Annotations.ToList(); annotations[index] = changed;
         try { CommitAnnotationChange(annotations); }
-        catch (InvalidDataException error) { StatusText.Text = error.Message; return; }
+        catch (InvalidDataException error) { UiText.Text(StatusText, "{0}", UiText.Error(error.Message)); return; }
         RefreshAnnotations(changed.Id); ScheduleSave(); await RefreshAnnotationDocumentAsync();
     }
     private async void DeleteAnnotation_Click(object sender, RoutedEventArgs e)
@@ -208,7 +209,8 @@ public partial class MainWindow
             ReaderPreferences p = Preferences;
             FontSizeSlider.Value = p.FontSize; LineSlider.Value = p.LineSpacing; WidthSlider.Value = p.TextWidth;
             ParagraphSpacingSlider.Value = p.ParagraphSpacing; IndentSlider.Value = p.FirstLineIndent;
-            IndentLabel.Text = p.FirstLineIndent < 0 ? "遵循来源" : p.FirstLineIndent.ToString("0.#", CultureInfo.InvariantCulture) + " em";
+            if (p.FirstLineIndent < 0) UiText.Text(IndentLabel, "遵循来源");
+            else IndentLabel.Text = p.FirstLineIndent.ToString("0.#", CultureInfo.InvariantCulture) + " em";
             FontCombo.SelectedIndex = p.Font switch { "Sans" => 1, "Georgia" => 2, _ => 0 };
             AlignmentCombo.SelectedIndex = p.Alignment switch { "Left" => 1, "Center" => 2, "Right" => 3, "Justify" => 4, _ => 0 };
             BookAppearance.IsChecked = _bookData?.Appearance != null; BookAppearance.IsEnabled = _bookData != null;
