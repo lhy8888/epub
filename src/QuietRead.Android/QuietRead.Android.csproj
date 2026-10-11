@@ -9,7 +9,7 @@
     <PublishTrimmed>false</PublishTrimmed><JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia.Android" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Android" Version="12.1.4" />
     <ProjectReference GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained" Include="../QuietRead.Cross/QuietRead.Cross.csproj" />
   </ItemGroup>
 </Project>

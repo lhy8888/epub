@@ -5,7 +5,7 @@
     <AssemblyName>QuietRead.Desktop</AssemblyName><PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
     <ProjectReference GlobalPropertiesToRemove="RuntimeIdentifier;RuntimeIdentifiers;SelfContained" Include="../QuietRead.Cross/QuietRead.Cross.csproj" />
   </ItemGroup>
 </Project>

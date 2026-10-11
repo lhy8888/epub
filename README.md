@@ -100,7 +100,7 @@ Actions 下载需要登录 GitHub，构建产物有保留期限。当前提供�
 
 ## 从源码构建
 
-使用 [global.json](global.json) 指定的 **.NET SDK 10.0.401**（允许同一功能带补丁更新）。Python 3.11+ 用于仓库检查、示例和打包，无需 Node.js。共享界面使用锁定的 Avalonia 11.3.22 NuGet 包；Android 另需 .NET Android 工作负载、Android SDK 和 JDK，iOS 需要 macOS、Xcode 26 和 .NET iOS 工作负载。运行 WPF 和其打包验证请使用 Windows。
+使用 [global.json](global.json) 指定的 **.NET SDK 10.0.401**（允许同一功能带补丁更新）。Python 3.11+ 用于仓库检查、示例和打包，无需 Node.js。共享界面使用锁定的 Avalonia 12.1.4 NuGet 包；Android 另需 .NET Android 工作负载、Android SDK 和 JDK，iOS 需要 macOS、Xcode 26 和 .NET iOS 工作负载。运行 WPF 和其打包验证请使用 Windows。
 
 ```powershell
 git clone https://github.com/lhy8888/epub.git

@@ -43,7 +43,7 @@ def main():
         if name.endswith(".csproj"):
             project = ET.fromstring(text)
             for reference in project.findall(".//PackageReference"):
-                if reference.get("Include") not in dependencies.get(name, set()) or reference.get("Version") != "11.3.22":
+                if reference.get("Include") not in dependencies.get(name, set()) or reference.get("Version") != "12.1.4":
                     errors.append(f"Dependency outside the documented pinned Avalonia policy: {name}: {reference.attrib}")
         if name.startswith(".github/workflows/"):
             for action in re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", text, re.MULTILINE):

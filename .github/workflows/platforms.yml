@@ -117,18 +117,18 @@ jobs:
       - name: Record resolved iOS dependency lock
         run: python3 -c 'import base64,gzip; print("::notice title=iOS dependency lock::" + base64.b64encode(gzip.compress(open("src/QuietRead.iOS/packages.lock.json", "rb").read())).decode())'
       - name: Compile simulator and unsigned device application
-        run: |
-          dotnet build src/QuietRead.iOS -c Release --no-restore -r iossimulator-arm64 -p:EnableCodeSigning=false -p:RestoreLockedMode=true -p:OutputPath=../../artifacts/ios-simulator/
-          dotnet build src/QuietRead.iOS -c Release --no-restore -r ios-arm64 -p:EnableCodeSigning=false -p:RestoreLockedMode=true -p:OutputPath=../../artifacts/ios-device/
+        run: python3 tools/build_ios.py
       - name: Verify and archive iOS applications
         run: python3 tools/check_mobile_package.py ios artifacts
       - name: Save simulator app and unsigned device app
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: QuietRead-iOS-builds
           path: |
             artifacts/QuietRead-ios-*.tar.gz
             artifacts/QuietRead-ios-*.sha256
+            artifacts/ios-*.log
           if-no-files-found: error
           retention-days: 30
   platform-checks:

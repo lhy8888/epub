@@ -1,6 +1,6 @@
 # Cross-platform dependencies
 
-The Windows WPF reader and QuietRead.Core use the .NET platform. The shared reader uses the following direct packages, pinned to 11.3.22 and covered by committed NuGet lock files, NuGet vulnerability auditing and CodeQL:
+The Windows WPF reader and QuietRead.Core use the .NET platform. The shared reader uses the following direct packages, pinned to 12.1.4 and covered by committed NuGet lock files, NuGet vulnerability auditing and CodeQL:
 
 - Avalonia, Avalonia.Themes.Fluent, Avalonia.Desktop, Avalonia.Android, Avalonia.iOS: MIT; https://github.com/AvaloniaUI/Avalonia
 - Avalonia.Headless: MIT; test runner only.

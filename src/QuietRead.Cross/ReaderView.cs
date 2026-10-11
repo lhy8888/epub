@@ -98,7 +98,7 @@ public sealed class ReaderView : UserControl
         _scroll.Content = _document; AutomationProperties.SetName(_scroll, Language.Get("书籍正文"));
         _body.Children.Add(_scroll); _sidebar.Child = _tabs; _sidebar.BorderThickness = new Thickness(0, 0, 1, 0); _sidebar.BorderBrush = Brushes.Gray;
         _body.Children.Add(_sidebar); Grid.SetRow(_body, 1); root.Children.Add(_body);
-        _libraryFilter.Watermark = Language.Get("筛选书名、作者、标签或系列"); _libraryFilter.TextChanged += (_, _) => RefreshLibraryRows();
+        _libraryFilter.PlaceholderText = Language.Get("筛选书名、作者、标签或系列"); _libraryFilter.TextChanged += (_, _) => RefreshLibraryRows();
         _libraryList.MinHeight = 100; _libraryList.MaxHeight = 240; _libraryList.SelectionChanged += (_, _) => LoadMetadata();
         _metaTitle.MaxLength = _metaAuthor.MaxLength = 256; _metaSeries.MaxLength = 100; _metaTags.MaxLength = 1100;
         Options(_metaStatus, "未读", "在读", "已读");
@@ -107,13 +107,13 @@ public sealed class ReaderView : UserControl
             Button("保存元数据", SaveMetadataAsync), Button("导出本书 JSON", () => ExportAsync("json", true)),
             Button("导出本书 Markdown 摘录", () => ExportAsync("md", true)), Button("备份全部 JSON", () => ExportAsync("json", false)),
             Button("导入阅读数据", ImportBackupAsync), Button("移除书库条目", RemoveSelectedAsync));
-        _tocFilter.Watermark = Language.Get("筛选目录标题"); _tocFilter.TextChanged += (_, _) => RefreshToc();
+        _tocFilter.PlaceholderText = Language.Get("筛选目录标题"); _tocFilter.TextChanged += (_, _) => RefreshToc();
         _tocList.MinHeight = 100; _tocList.MaxHeight = 280;
         _tocList.SelectionChanged += async (_, _) => { if (_tocList.SelectedItem is TocRow row) await NavigateAsync(row.Item.ChapterIndex, fragment: row.Item.Fragment); };
         _marksList.MaxHeight = 200; _marksList.SelectionChanged += async (_, _) =>
         { if (_marksList.SelectedItem is MarkRow row) await NavigateAsync(row.Mark.ChapterIndex, row.Mark.BlockIndex, row.Mark.Locator); };
         var toc = Panel(_tocFilter, _tocList, Label("书签"), _marksList, Button("删除书签", DeleteBookmarkAsync));
-        _query.MaxLength = 128; _query.Watermark = Language.Get("全文搜索关键词");
+        _query.MaxLength = 128; _query.PlaceholderText = Language.Get("全文搜索关键词");
         _searchList.MaxHeight = 360; _searchList.SelectionChanged += async (_, _) => { if (_searchList.SelectedItem is HitRow row) await NavigateAsync(row.Hit.ChapterIndex, row.Hit.BlockIndex); };
         var stop = Button("停止", () => { _operation?.Cancel(); return Task.CompletedTask; });
         var search = Panel(_query, Check(_currentChapter, "当前章"), Check(_matchCase, "区分大小写"), Check(_wholeWord, "整词"), Button("查找", SearchAsync), stop, _searchList);
@@ -175,7 +175,7 @@ public sealed class ReaderView : UserControl
         if (await RunAsync(() => Task.Run(() => Session.SetLanguage(language))))
         {
             Language.Set(Session.State.InterfaceLanguage); _statusKey = key; _statusArguments = args; _statusError = error; RefreshStatus();
-            _libraryFilter.Watermark = Language.Get("筛选书名、作者、标签或系列"); _tocFilter.Watermark = Language.Get("筛选目录标题"); _query.Watermark = Language.Get("全文搜索关键词");
+            _libraryFilter.PlaceholderText = Language.Get("筛选书名、作者、标签或系列"); _tocFilter.PlaceholderText = Language.Get("筛选目录标题"); _query.PlaceholderText = Language.Get("全文搜索关键词");
             AutomationProperties.SetName(_scroll, Language.Get("书籍正文"));
         }
         _ready = false; _languageChoice.SelectedIndex = Session.State.InterfaceLanguage == "en" ? 1 : 0; _ready = true;
@@ -549,7 +549,7 @@ public sealed class ReaderView : UserControl
         try
         {
             if (TopLevel.GetTopLevel(this) is { } top)
-            { using var bitmap = new RenderTargetBitmap(new PixelSize((int)top.Bounds.Width, (int)top.Bounds.Height)); bitmap.Render(top); bitmap.Save(Path.ChangeExtension(report, ".png")); }
+            { using var bitmap = new RenderTargetBitmap(new PixelSize((int)top.Bounds.Width, (int)top.Bounds.Height)); bitmap.Render(top); bitmap.Save(Path.ChangeExtension(report, ".png"), PngBitmapEncoderOptions.Default); }
             await File.WriteAllTextAsync(report, JsonSerializer.Serialize(new { Passed = passed, Platform = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier, Blocks = _paragraphs.Count, Language = Language.Language, Error = _statusError }));
         }
         catch (Exception e) { passed = false; await File.WriteAllTextAsync(report, JsonSerializer.Serialize(new { Passed = false, Error = e.ToString() })); }
