@@ -3,7 +3,7 @@
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless" Version="12.1.4" />
     <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.5" />
     <ProjectReference Include="../../src/QuietRead.Cross/QuietRead.Cross.csproj" />
   </ItemGroup>
 </Project>
